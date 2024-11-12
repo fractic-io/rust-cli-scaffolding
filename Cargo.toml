@@ -1,0 +1,10 @@
+[workspace]
+
+resolver = "2"
+members = [
+    "main",
+    "lib_aws",
+    "lib_core",
+    "lib_flutter",
+    "lib_image",
+]

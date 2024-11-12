@@ -1,0 +1,8 @@
+[package]
+name = "lib_flutter"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+hash = "0.3.0"
+lib_core = { path = "../lib_core" }

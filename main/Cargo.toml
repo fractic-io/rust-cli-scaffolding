@@ -1,0 +1,11 @@
+[package]
+name = "fractic-cli-scaffolding"
+version = "0.1.0"
+authors = ["Mart van Buren <mart@fractic.io>"]
+edition = "2021"
+
+[dependencies]
+lib_aws = { path = "../lib_aws" }
+lib_core = { path = "../lib_core" }
+lib_flutter = { path = "../lib_flutter" }
+lib_image = { path = "../lib_image" }
