@@ -5,7 +5,13 @@ authors = ["Mart van Buren <mart@fractic.io>"]
 edition = "2021"
 
 [dependencies]
-lib_aws = { path = "../lib_aws" }
 lib_core = { path = "../lib_core" }
-lib_flutter = { path = "../lib_flutter" }
-lib_image = { path = "../lib_image" }
+lib_aws = { path = "../lib_aws", optional = true }
+lib_flutter = { path = "../lib_flutter", optional = true }
+lib_image = { path = "../lib_image", optional = true }
+
+[features]
+default = []
+aws = ["lib_aws"]
+flutter = ["lib_flutter"]
+image = ["lib_image"]
