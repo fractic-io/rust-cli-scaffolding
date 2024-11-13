@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 colored = "2.1.0"
+fractic-server-error = { git = "https://github.com/fractic-io/rust-server-error.git" }
 regex = "1.11.1"
 serde = { version = "1.0.214", features = ["derive"] }
 serde_yaml = "0.9.34"
