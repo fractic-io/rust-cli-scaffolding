@@ -89,6 +89,7 @@ macro_rules! define_cli_error {
 
 define_cli_error!(CriticalError, "Unexpected: {details}.", { details: &str });
 define_cli_error!(MultithreadingError, "Error executing child threads.");
+define_cli_error!(IOError, "IO error.");
 
 // Conversion from ServerError.
 // --------------------------------------------------

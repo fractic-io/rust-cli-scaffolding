@@ -1,15 +1,12 @@
-use std::{
-    error::Error,
-    hash::{DefaultHasher, Hash as _, Hasher as _},
-};
+use std::hash::{DefaultHasher, Hash as _, Hasher as _};
 
-use lib_core::Tty;
+use lib_core::{CliError, Tty};
 
 pub fn create_android_emulator_if_not_exists(
     tty: &Tty,
     avd_id: &str,
     avd_image: &str,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), CliError> {
     let avd_exists = tty
         .execute("avdmanager", &["list", "avd"], None, false)?
         .split("\n")
@@ -41,7 +38,7 @@ pub fn create_android_emulator_if_not_exists(
     Ok(())
 }
 
-pub fn start_android_emulator(tty: &mut Tty, avd_id: &str) -> Result<String, Box<dyn Error>> {
+pub fn start_android_emulator(tty: &mut Tty, avd_id: &str) -> Result<String, CliError> {
     // Start the emulator
     tty.info(&format!("Starting emulator for AVD '{}'...", avd_id));
 
@@ -91,7 +88,7 @@ pub fn start_android_emulator(tty: &mut Tty, avd_id: &str) -> Result<String, Box
     Ok(adb_id)
 }
 
-pub fn kill_android_emulator(tty: &Tty, adb_id: String) -> Result<(), Box<dyn Error>> {
+pub fn kill_android_emulator(tty: &Tty, adb_id: String) -> Result<(), CliError> {
     // Stop the emulator
     tty.info(&format!("Stopping emulator '{}'...", adb_id));
     tty.execute(

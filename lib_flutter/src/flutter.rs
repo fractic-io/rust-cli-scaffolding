@@ -1,6 +1,6 @@
-use std::{collections::HashMap, error::Error};
+use std::collections::HashMap;
 
-use lib_core::Tty;
+use lib_core::{CliError, Tty};
 
 pub fn run_flutter_integration_test(
     tty: &Tty,
@@ -10,7 +10,7 @@ pub fn run_flutter_integration_test(
     target: &str,
     flavor: Option<&str>,
     dart_define: Option<HashMap<&str, &str>>,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), CliError> {
     let mut args = vec![
         "drive",
         "--profile",

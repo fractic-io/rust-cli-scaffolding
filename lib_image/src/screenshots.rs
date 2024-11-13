@@ -1,15 +1,18 @@
 extern crate magick_rust;
-use lib_core::Tty;
+use lib_core::{define_cli_error, CliError, CriticalError, IOError, Tty};
 use magick_rust::{
     bindings::{DrawRoundRectangle, MagickBooleanType_MagickTrue},
-    magick_wand_genesis, CompositeOperator, DrawingWand, FilterType, GravityType, MagickError,
-    MagickWand, PixelWand,
+    magick_wand_genesis, CompositeOperator, DrawingWand, FilterType, GravityType, MagickWand,
+    PixelWand,
 };
 use std::{fs, path::Path, sync::Once};
 
+define_cli_error!(ImageMagickError, "ImageMagick command failed.");
+define_cli_error!(ImageProcessingError, "Error in image processing: {details}.", { details: &str });
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
-pub enum Align {
+pub enum TextAlign {
     Left,
     Center,
     Right,
@@ -56,25 +59,31 @@ fn with_image<P>(
     tty: &Tty,
     input: P,
     output: P,
-    op: impl FnOnce(&mut MagickWand) -> Result<(), magick_rust::MagickError>,
-) -> Result<(), Box<dyn std::error::Error>>
+    op: impl FnOnce(&mut MagickWand) -> Result<(), CliError>,
+) -> Result<(), CliError>
 where
     P: AsRef<Path>,
 {
     initialize_magick();
     let mut wand = MagickWand::new();
-    wand.read_image(input.as_ref().to_str().unwrap())?;
+    wand.read_image(
+        input
+            .as_ref()
+            .to_str()
+            .ok_or_else(|| CriticalError::new("invalid input path"))?,
+    )
+    .into_cli_res()?;
     op(&mut wand)?;
     if let Some(parent) = output.as_ref().parent() {
-        fs::create_dir_all(parent).map_err(|e| {
-            format!(
-                "Failed to create directory at path {}.\n{:#?}",
-                parent.display(),
-                e
-            )
-        })?;
+        fs::create_dir_all(parent).map_err(|e| IOError::with_debug(&e))?;
     }
-    wand.write_image(output.as_ref().to_str().unwrap())?;
+    wand.write_image(
+        output
+            .as_ref()
+            .to_str()
+            .ok_or_else(|| CriticalError::new("invalid output path"))?,
+    )
+    .into_cli_res()?;
     tty.debug(&format!("Image saved to {}.", output.as_ref().display()));
     Ok(())
 }
@@ -84,7 +93,7 @@ pub fn process_screenshot_basic<P>(
     input: P,
     output: P,
     app_bar_height: u32,
-) -> Result<(), Box<dyn std::error::Error>>
+) -> Result<(), CliError>
 where
     P: AsRef<Path>,
 {
@@ -94,7 +103,8 @@ where
             wand.get_image_height() - app_bar_height as usize,
             0,
             app_bar_height as isize,
-        )?;
+        )
+        .into_cli_res()?;
         Ok(())
     })
 }
@@ -107,8 +117,8 @@ pub fn process_screenshot_headline_text<P>(
     foreground_color_hex: &str,
     background_color_hex: &str,
     text: &str,
-    align: Align,
-) -> Result<(), Box<dyn std::error::Error>>
+    align: TextAlign,
+) -> Result<(), CliError>
 where
     P: AsRef<Path>,
 {
@@ -121,28 +131,30 @@ where
             height - app_bar_height as usize,
             0,
             app_bar_height as isize,
-        )?;
+        )
+        .into_cli_res()?;
 
-        let fg_color = color(foreground_color_hex);
-        let bg_color = color(background_color_hex);
+        let fg_color = color(foreground_color_hex)?;
+        let bg_color = color(background_color_hex)?;
 
         // Start result canvas.
         let mut result = MagickWand::new();
-        result.new_image(width, height, &fg_color)?;
+        result.new_image(width, height, &fg_color).into_cli_res()?;
 
         // Shrink screenshot for frame-in-frame.
         let scale_factor = 0.9;
         let inner_width = (width as f64 * scale_factor) as usize;
         let inner_height = (height as f64 * scale_factor) as usize;
-        wand.resize_image(inner_width, inner_height, FilterType::Lanczos)?;
+        wand.resize_image(inner_width, inner_height, FilterType::Lanczos)
+            .into_cli_res()?;
 
         // Apply a border with rounded corners.
         let border_thickness = 40;
         let border_radius = 20.0;
         let corners = match align {
-            Align::Left => Corners::Only(Corner::TopRight),
-            Align::Center => Corners::Top,
-            Align::Right => Corners::Only(Corner::TopLeft),
+            TextAlign::Left => Corners::Only(Corner::TopRight),
+            TextAlign::Center => Corners::Top,
+            TextAlign::Right => Corners::Only(Corner::TopLeft),
         };
         let (inner_width, inner_height) =
             add_rounded_border(wand, &bg_color, border_thickness, border_radius, corners)?;
@@ -150,13 +162,15 @@ where
         // Overlay image onto background.
         let push_down = 180;
         let overlay_x = match align {
-            Align::Left => -(border_thickness as isize),
-            Align::Center => (width as isize - inner_width as isize) / 2,
-            Align::Right => width as isize - inner_width as isize + border_thickness as isize,
+            TextAlign::Left => -(border_thickness as isize),
+            TextAlign::Center => (width as isize - inner_width as isize) / 2,
+            TextAlign::Right => width as isize - inner_width as isize + border_thickness as isize,
         };
         let overlay_y =
             height as isize - inner_height as isize + border_thickness as isize + push_down;
-        result.compose_images(&wand, CompositeOperator::Over, true, overlay_x, overlay_y)?;
+        result
+            .compose_images(&wand, CompositeOperator::Over, true, overlay_x, overlay_y)
+            .into_cli_res()?;
 
         // Add headline text.
         let padding_top = 10;
@@ -166,8 +180,7 @@ where
         let font_path = write_to_tmp(
             "Roboto-Light",
             include_bytes!("../res/Roboto/Roboto-Light.ttf"),
-        )
-        .map_err(|e| MagickError(format!("Failed to write font to temporary file.\n{:#?}", e)))?;
+        )?;
         add_text(
             &mut result,
             text,
@@ -180,9 +193,9 @@ where
                 height: overlay_y as usize - padding_top - padding_bottom,
             },
             match align {
-                Align::Left => Align::Right,
-                Align::Center => Align::Center,
-                Align::Right => Align::Left,
+                TextAlign::Left => TextAlign::Right,
+                TextAlign::Center => TextAlign::Center,
+                TextAlign::Right => TextAlign::Left,
             },
         )?;
 
@@ -198,13 +211,14 @@ fn add_rounded_border(
     thickness: usize,
     radius: f64,
     corners: Corners,
-) -> Result<(usize, usize), magick_rust::MagickError> {
+) -> Result<(usize, usize), CliError> {
     let width = wand.get_image_width();
     let height = wand.get_image_height();
     for corner in corners.iter() {
         round_corner(wand, corner, radius, radius * 4.0)?;
     }
-    wand.border_image(color, thickness, thickness, CompositeOperator::Over)?;
+    wand.border_image(color, thickness, thickness, CompositeOperator::Over)
+        .into_cli_res()?;
     for corner in corners.iter() {
         round_corner(wand, corner, radius, radius * 4.0)?;
     }
@@ -216,7 +230,7 @@ fn round_corner(
     corner: Corner,
     radius: f64,
     mask_box_size: f64,
-) -> Result<(), magick_rust::MagickError> {
+) -> Result<(), CliError> {
     let width = wand.get_image_width();
     let height = wand.get_image_height();
 
@@ -224,7 +238,8 @@ fn round_corner(
     let mut corner_wand = DrawingWand::new();
     corner_wand.set_fill_color(&white());
     let mut mask = MagickWand::new();
-    mask.new_image(width, height, &transparent())?;
+    mask.new_image(width, height, &transparent())
+        .into_cli_res()?;
     let (x, y) = match corner {
         Corner::TopLeft => (0.0, 0.0),
         Corner::TopRight => (width as f64 - mask_box_size, 0.0),
@@ -243,7 +258,7 @@ fn round_corner(
             radius,
         );
     }
-    mask.draw_image(&corner_wand)?;
+    mask.draw_image(&corner_wand).into_cli_res()?;
 
     // Add rest of image (excluding that corner) to mask.
     let mut fill_rest_wand = DrawingWand::new();
@@ -286,10 +301,11 @@ fn round_corner(
             );
         }
     }
-    mask.draw_image(&fill_rest_wand)?;
+    mask.draw_image(&fill_rest_wand).into_cli_res()?;
 
     // Apply mask to the screenshot.
-    wand.compose_images(&mask, CompositeOperator::DstIn, true, 0, 0)?;
+    wand.compose_images(&mask, CompositeOperator::DstIn, true, 0, 0)
+        .into_cli_res()?;
 
     Ok(())
 }
@@ -300,24 +316,28 @@ fn add_text(
     font: &str,
     color: &PixelWand,
     fit_in_box: BoundingBox,
-    align: Align,
-) -> Result<(), magick_rust::MagickError> {
+    align: TextAlign,
+) -> Result<(), CliError> {
     let (wrapped, font_size) = wrap_or_scale_up(font, text, fit_in_box.width)?;
 
     let mut text_image = MagickWand::new();
-    text_image.new_image(fit_in_box.width, fit_in_box.height, &transparent())?;
+    text_image
+        .new_image(fit_in_box.width, fit_in_box.height, &transparent())
+        .into_cli_res()?;
 
     let mut drawing_wand = DrawingWand::new();
-    drawing_wand.set_font(font)?;
+    drawing_wand.set_font(font).into_cli_res()?;
     drawing_wand.set_text_antialias(MagickBooleanType_MagickTrue);
     drawing_wand.set_font_size(font_size);
     drawing_wand.set_fill_color(&color);
     drawing_wand.set_gravity(match align {
-        Align::Left => GravityType::West,
-        Align::Center => GravityType::Center,
-        Align::Right => GravityType::East,
+        TextAlign::Left => GravityType::West,
+        TextAlign::Center => GravityType::Center,
+        TextAlign::Right => GravityType::East,
     });
-    text_image.annotate_image(&drawing_wand, 0.0, 0.0, 0.0, &wrapped)?;
+    text_image
+        .annotate_image(&drawing_wand, 0.0, 0.0, 0.0, &wrapped)
+        .into_cli_res()?;
 
     // Overlay text onto the screenshot.
     wand.compose_images(
@@ -326,7 +346,8 @@ fn add_text(
         true,
         fit_in_box.x as isize,
         fit_in_box.y as isize,
-    )?;
+    )
+    .into_cli_res()?;
     Ok(())
 }
 
@@ -334,7 +355,7 @@ fn wrap_or_scale_up(
     font: &str,
     text: &str,
     available_width: usize,
-) -> Result<(String, f64), magick_rust::MagickError> {
+) -> Result<(String, f64), CliError> {
     let mut font_size = 140.0; // Start with a large initial size.
     let min_font_size = 80.0;
 
@@ -383,26 +404,30 @@ fn wrap_or_scale_up(
     Ok((wrapped_text, font_size))
 }
 
-fn get_text_width(font: &str, text: &str, size: f64) -> Result<f64, magick_rust::MagickError> {
+fn get_text_width(font: &str, text: &str, size: f64) -> Result<f64, CliError> {
     let mut test_img = MagickWand::new();
-    test_img.new_image(size as usize * text.len(), size as usize * 3, &black())?;
+    test_img
+        .new_image(size as usize * text.len(), size as usize * 3, &black())
+        .into_cli_res()?;
 
     let mut drawing_wand = DrawingWand::new();
-    drawing_wand.set_font(font)?;
+    drawing_wand.set_font(font).into_cli_res()?;
     drawing_wand.set_text_antialias(MagickBooleanType_MagickTrue);
     drawing_wand.set_font_size(size);
     drawing_wand.set_fill_color(&white());
     drawing_wand.set_gravity(GravityType::West);
 
-    test_img.annotate_image(&drawing_wand, 0.0, 0.0, 0.0, text)?;
+    test_img
+        .annotate_image(&drawing_wand, 0.0, 0.0, 0.0, text)
+        .into_cli_res()?;
 
     let width_before = test_img.get_image_width();
-    test_img.trim_image(0.0)?;
+    test_img.trim_image(0.0).into_cli_res()?;
     let width_after = test_img.get_image_width();
 
     if width_before == width_after {
-        Err(magick_rust::MagickError(
-            "get_text_width: Code issue. Incorrect test image size was used, since trimmed image was not shorter than original.".to_string(),
+        Err(ImageProcessingError::new(
+            "(code issue) incorrect test image size was used, since trimmed image was not shorter than original"
         ))
     } else {
         Ok(width_after as f64)
@@ -436,35 +461,58 @@ impl Corners {
     }
 }
 
-fn write_to_tmp<C>(key: &str, bytes: C) -> Result<std::path::PathBuf, Box<dyn std::error::Error>>
+fn write_to_tmp<C>(key: &str, bytes: C) -> Result<std::path::PathBuf, CliError>
 where
     C: AsRef<[u8]>,
 {
     let path = std::env::temp_dir().join(key);
-    fs::write(&path, bytes)?;
+    fs::write(&path, bytes).map_err(|e| IOError::with_debug(&e))?;
     Ok(path)
 }
 
-fn color(hex: &str) -> PixelWand {
+fn color(hex: &str) -> Result<PixelWand, CliError> {
     let mut c = PixelWand::new();
-    c.set_color(hex).unwrap();
-    c
+    c.set_color(hex).into_cli_res()?;
+    Ok(c)
 }
 
 fn black() -> PixelWand {
     let mut c = PixelWand::new();
-    c.set_color("#000000").unwrap();
+    c.set_color("#000000")
+        .expect("Hard-coded color should be valid.");
     c
 }
 
 fn white() -> PixelWand {
     let mut c = PixelWand::new();
-    c.set_color("#FFFFFF").unwrap();
+    c.set_color("#FFFFFF")
+        .expect("Hard-coded color should be valid.");
     c
 }
 
 fn transparent() -> PixelWand {
     let mut c = PixelWand::new();
-    c.set_color("none").unwrap();
+    c.set_color("#FFFFFF")
+        .expect("Hard-coded color should be valid.");
     c
+}
+
+trait IntoCliError {
+    fn into_cli_err(self) -> CliError;
+}
+
+impl IntoCliError for magick_rust::MagickError {
+    fn into_cli_err(self) -> CliError {
+        ImageMagickError::with_debug(&self)
+    }
+}
+
+trait IntoCliResult<T> {
+    fn into_cli_res(self) -> Result<T, CliError>;
+}
+
+impl<T> IntoCliResult<T> for Result<T, magick_rust::MagickError> {
+    fn into_cli_res(self) -> Result<T, CliError> {
+        self.map_err(|e| e.into_cli_err())
+    }
 }

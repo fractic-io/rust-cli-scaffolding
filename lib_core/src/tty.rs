@@ -7,11 +7,30 @@ use std::future::Future;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::process::ExitStatus;
 
 use crate::constants::{
     ANDROID_HOME, FLUTTER_HOME, INCLUDE_IN_ENV, INCLUDE_IN_PATH, JAVA_HOME, PATH,
 };
 use crate::printer::Printer;
+use crate::{define_cli_error, CliError, IOError};
+
+define_cli_error!(TtyExecuteError, "Failed to execute command.");
+define_cli_error!(
+    TtyCommandFailed,
+    "[{exit_status}] Command failed.\n{output}",
+    { exit_status: ExitStatus, output: &str }
+);
+define_cli_error!(
+    TtyBackgroundCommandFailed,
+    "[{exit_status}] Background command failed.",
+    { exit_status: ExitStatus }
+);
+define_cli_error!(
+    MissingDependency,
+    "{name} is required. To set the {name} path, set the {path_var} environment variable in '{preferences_file}'.\n\nCurrent overrides:\n{current_overrides:#?}",
+    { name: &str, path_var: &str, preferences_file: &std::path::Display<'_>, current_overrides: &HashMap<String, String> }
+);
 
 pub struct Tty {
     preferences: Preferences,
@@ -201,10 +220,10 @@ impl Tty {
         &'a mut self,
         name: &str,
         f: F,
-    ) -> Pin<Box<dyn Future<Output = Result<T, Box<dyn std::error::Error>>> + 'a>>
+    ) -> Pin<Box<dyn Future<Output = Result<T, CliError>> + 'a>>
     where
         F: FnOnce(&'a mut Self) -> Fut + 'a,
-        Fut: Future<Output = Result<T, Box<dyn std::error::Error>>> + 'a,
+        Fut: Future<Output = Result<T, CliError>> + 'a,
     {
         let printer = self.printer.clone();
         printer.section_open(name);
@@ -229,8 +248,8 @@ impl Tty {
         args: &[&str],
         dir: Option<&str>,
         stream_output: bool,
-    ) -> Result<String, Box<dyn std::error::Error>> {
-        let abs_dir = fs::canonicalize(dir.unwrap_or("."))?;
+    ) -> Result<String, CliError> {
+        let abs_dir = fs::canonicalize(dir.unwrap_or(".")).map_err(|e| IOError::with_debug(&e))?;
         let mut child = std::process::Command::new(program)
             .env_clear()
             .envs(&self.env)
@@ -238,7 +257,8 @@ impl Tty {
             .current_dir(abs_dir)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
-            .spawn()?;
+            .spawn()
+            .map_err(|e| TtyExecuteError::with_debug(&e))?;
 
         let mut collected_output = String::new();
 
@@ -276,16 +296,11 @@ impl Tty {
             }
         }
 
-        let status = child.wait()?;
+        let status = child.wait().map_err(|e| TtyExecuteError::with_debug(&e))?;
         if status.success() {
             Ok(collected_output.trim().to_string())
         } else {
-            Err(format!(
-                "[{}] Command failed.\n{}",
-                status.code().unwrap_or_default(),
-                collected_output
-            )
-            .into())
+            Err(TtyCommandFailed::new(status, &collected_output))
         }
     }
 
@@ -295,8 +310,8 @@ impl Tty {
         args: &[&str],
         dir: Option<&str>,
         stream_output: bool,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let abs_dir = fs::canonicalize(dir.unwrap_or("."))?;
+    ) -> Result<(), CliError> {
+        let abs_dir = fs::canonicalize(dir.unwrap_or(".")).map_err(|e| IOError::with_debug(&e))?;
         self.background_processes.push(
             std::process::Command::new(program)
                 .env_clear()
@@ -307,12 +322,13 @@ impl Tty {
                     true => std::process::Stdio::inherit(),
                     false => std::process::Stdio::null(),
                 })
-                .spawn()?,
+                .spawn()
+                .map_err(|e| TtyExecuteError::with_debug(&e))?,
         );
         Ok(())
     }
 
-    pub fn resolve_background_processes(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn resolve_background_processes(&mut self) -> Result<(), CliError> {
         let processes = self.background_processes.drain(..).collect::<Vec<_>>();
         processes
             .into_iter()
@@ -331,46 +347,64 @@ impl Tty {
                     // signal. For now, ignore this and only show an error if it
                     // returned with non-zero exit code.
                     Ok(status) if status.code().unwrap_or_default() == 0 => Ok(()),
-                    Ok(status) => Err(format!("[{}] Background command failed.", status)),
-                    Err(e) => Err(e.to_string()),
+                    Ok(status) => Err(TtyBackgroundCommandFailed::new(status)),
+                    Err(e) => Err(TtyExecuteError::with_debug(&e)),
                 }
             })
-            .collect::<Result<_, String>>()
-            .map_err(|e| e.into())
+            .collect::<Result<_, CliError>>()
+            .map_err(|e| e)
     }
 
-    pub fn require(&self, dependencies: &[Dependency]) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn require(&self, dependencies: &[Dependency]) -> Result<(), CliError> {
         for dependency in dependencies {
             match dependency {
                 Dependency::Java => {
-                    self.execute("java", &["--version"], None, false).map_err(|e| {
-                        format!(
-                            "{e}\n\nJava is required. To set the Java path, set the {JAVA_HOME} environment variable in '{}'.\n\nCurrent overrides:\n{:#?}",
-                            self.preferences_path.display(),
-                            self.env,
-                        )
-                    })?;
+                    self.execute("java", &["--version"], None, false)
+                        .map_err(|e| {
+                            MissingDependency::with_debug(
+                                "Java",
+                                &JAVA_HOME,
+                                &self.preferences_path.display(),
+                                &self.env,
+                                &e,
+                            )
+                        })?;
                 }
                 Dependency::AndroidSdk => {
-                    self.execute("sdkmanager", &["--version"], None, false).map_err(|e| {
-                        format!(
-                            "{e}\n\nAndroid SDK is required. To set the Android SDK path, set the {ANDROID_HOME} environment variable in '{}'.\n\nCurrent overrides:\n{:#?}",
-                            self.preferences_path.display(),
-                            self.env,
-                        )
-                    })?;
+                    self.execute("sdkmanager", &["--version"], None, false)
+                        .map_err(|e| {
+                            MissingDependency::with_debug(
+                                "Android SDK",
+                                &ANDROID_HOME,
+                                &self.preferences_path.display(),
+                                &self.env,
+                                &e,
+                            )
+                        })?;
                 }
                 Dependency::Flutter => {
-                    self.execute("flutter", &["--version"], None, false).map_err(|e| {
-                        format!(
-                            "{e}\n\nFlutter is required. To set the Flutter path, set the {FLUTTER_HOME} environment variable in '{}'.\n\nCurrent overrides:\n{:#?}",
-                            self.preferences_path.display(),
-                            self.env,
-                        )
-                    })?;
+                    self.execute("flutter", &["--version"], None, false)
+                        .map_err(|e| {
+                            MissingDependency::with_debug(
+                                "Flutter",
+                                &FLUTTER_HOME,
+                                &self.preferences_path.display(),
+                                &self.env,
+                                &e,
+                            )
+                        })?;
                 }
                 Dependency::Command(command) => {
-                    self.execute(command, &["--version"], None, false)?;
+                    self.execute(command, &["--help"], None, false)
+                        .map_err(|e| {
+                            MissingDependency::with_debug(
+                                command,
+                                command,
+                                &self.preferences_path.display(),
+                                &self.env,
+                                &e,
+                            )
+                        })?;
                 }
             }
         }
