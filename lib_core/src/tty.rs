@@ -33,6 +33,7 @@ define_cli_error!(
 );
 
 pub struct Tty {
+    start_time: std::time::Instant,
     preferences: Preferences,
     preferences_path: PathBuf,
     script_name: &'static str,
@@ -71,6 +72,7 @@ impl Tty {
         let env = Self::build_env(&preferences.env);
 
         Self {
+            start_time: std::time::Instant::now(),
             preferences,
             preferences_path: expanded_path,
             script_name,
@@ -409,5 +411,33 @@ impl Tty {
             }
         }
         Ok(())
+    }
+
+    pub fn close<T>(mut self, final_result: Result<T, CliError>) -> Result<(), CliError> {
+        let cleanup = self.resolve_background_processes();
+        match final_result.and(cleanup) {
+            Ok(()) => {
+                self.success("SUCCESS");
+                self.debug(&format!("Elapsed: {}.", print_elapsed(self.start_time)));
+                Ok(())
+            }
+            Err(e) => {
+                self.error(&e.to_string());
+                std::process::exit(1)
+            }
+        }
+    }
+}
+
+fn print_elapsed(start: std::time::Instant) -> String {
+    let elapsed = start.elapsed();
+    let secs = elapsed.as_secs();
+    let millis = elapsed.subsec_millis();
+    if secs < 60 {
+        format!("{}.{:03}s", secs, millis)
+    } else {
+        let mins = secs / 60;
+        let secs = secs % 60;
+        format!("{}m {}.{:03}s", mins, secs, millis)
     }
 }
