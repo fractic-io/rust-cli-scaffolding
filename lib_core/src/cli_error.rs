@@ -4,6 +4,8 @@ use colored::Colorize;
 
 pub trait CliErrorTrait: std::fmt::Debug + Send + Sync + 'static {
     fn details(&self) -> CliErrorDetails;
+    fn annotations(&self) -> &Vec<&'static str>;
+    fn annotate(&mut self, annotation: &'static str);
 }
 
 pub type CliError = Box<dyn CliErrorTrait>;
@@ -22,14 +24,36 @@ impl fmt::Display for dyn CliErrorTrait {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.details() {
             CliErrorDetails::Custom { message, .. } => {
-                write!(f, "{}\n{:#?}", message.bold(), self.details())
+                write!(f, "{}\n{:#?}", message.bold(), self.details())?;
             }
-            CliErrorDetails::FromServerError(error) => write!(f, "{}", error),
+            CliErrorDetails::FromServerError(error) => {
+                write!(f, "{}", error)?;
+            }
         }
+        for annotation in self.annotations() {
+            write!(f, "\nNOTE: {}", annotation.bold().yellow())?;
+        }
+        Ok(())
     }
 }
 
 impl std::error::Error for dyn CliErrorTrait {}
+
+// Annotations.
+// --------------------------------------------------
+
+pub trait AnnotatableResult {
+    fn annotate(self, annotation: &'static str) -> Self;
+}
+
+impl<T> AnnotatableResult for Result<T, CliError> {
+    fn annotate(self, annotation: &'static str) -> Self {
+        self.map_err(|mut e| {
+            e.annotate(annotation);
+            e
+        })
+    }
+}
 
 // Definining custom CLI errors.
 // --------------------------------------------------
@@ -45,6 +69,7 @@ macro_rules! define_cli_error {
             context: String,
             message: String,
             debug: Option<String>,
+            annotations: Vec<&'static str>,
         }
 
         impl $name {
@@ -55,6 +80,7 @@ macro_rules! define_cli_error {
                     context: std::backtrace::Backtrace::force_capture().to_string(),
                     message: format!($msg, $($arg = $arg),*),
                     debug: None,
+                    annotations: Vec::new(),
                 })
             }
 
@@ -68,6 +94,7 @@ macro_rules! define_cli_error {
                     context: std::backtrace::Backtrace::force_capture().to_string(),
                     message: format!($msg, $($arg = $arg),*),
                     debug: Some(format!("{:?}", debug)),
+                    annotations: Vec::new(),
                 })
             }
         }
@@ -79,6 +106,12 @@ macro_rules! define_cli_error {
                     message: &self.message,
                     debug: self.debug.as_ref(),
                 }
+            }
+            fn annotations(&self) -> &Vec<&'static str> {
+                &self.annotations
+            }
+            fn annotate(&mut self, annotation: &'static str) {
+                self.annotations.push(annotation);
             }
         }
     };
@@ -95,16 +128,22 @@ define_cli_error!(IOError, "IO error.");
 // --------------------------------------------------
 
 #[derive(Debug)]
-struct FromServerError(fractic_server_error::ServerError);
+struct FromServerError(fractic_server_error::ServerError, Vec<&'static str>);
 
 impl CliErrorTrait for FromServerError {
     fn details(&self) -> CliErrorDetails {
         CliErrorDetails::FromServerError(&self.0)
     }
+    fn annotations(&self) -> &Vec<&'static str> {
+        &self.1
+    }
+    fn annotate(&mut self, annotation: &'static str) {
+        self.1.push(annotation);
+    }
 }
 
 impl From<fractic_server_error::ServerError> for CliError {
     fn from(error: fractic_server_error::ServerError) -> CliError {
-        Box::new(FromServerError(error))
+        Box::new(FromServerError(error, Vec::new()))
     }
 }
