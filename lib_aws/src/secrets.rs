@@ -11,18 +11,16 @@ define_cli_error!(
 );
 
 pub async fn get_secret(
-    account_id: &str,
-    cli_role: &str,
+    profile: &str,
     region: &str,
     secret_id: &str,
     key: &str,
 ) -> Result<String, CliError> {
-    let profile_name = format!("{}-{}", cli_role, account_id);
     let shared_config = aws_config::defaults(BehaviorVersion::v2024_03_28())
         .region(Region::new(region.to_string()))
         .credentials_provider(
             ProfileFileCredentialsProvider::builder()
-                .profile_name(profile_name)
+                .profile_name(profile)
                 .build(),
         )
         .load()

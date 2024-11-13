@@ -10,11 +10,11 @@ define_cli_error!(
     { profile: &str, cli_role: &str, account_id: &str, sso_session: &str }
 );
 
-pub async fn require_identity(
+pub async fn require_aws_profile(
     sso_session: &str,
     account_id: &str,
     cli_role: &str,
-) -> Result<(), CliError> {
+) -> Result<String, CliError> {
     let profile = format!("{}-{}", cli_role, account_id);
     let shared_config = aws_config::defaults(BehaviorVersion::v2024_03_28())
         .region(Region::new(TEST_REGION))
@@ -31,5 +31,5 @@ pub async fn require_identity(
         .send()
         .await
         .map_err(|_| AwsProfileRequired::new(&profile, cli_role, account_id, sso_session))?;
-    Ok(())
+    Ok(profile)
 }
