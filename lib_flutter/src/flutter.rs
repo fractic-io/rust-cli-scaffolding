@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
-use lib_core::{CliError, Tty};
+use lib_core::{CliError, Executor};
 
 pub fn run_flutter_integration_test(
-    tty: &Tty,
+    ex: &Executor,
     dir: &str,
     adb_id: &str,
     driver: &str,
@@ -33,7 +33,7 @@ pub fn run_flutter_integration_test(
         .collect();
     args.extend(setexprs.iter().map(|s| s.as_str()));
 
-    tty.execute("flutter", &args, Some(dir), true)?;
+    ex.execute("flutter", &args, Some(dir), true)?;
 
     Ok(())
 }

@@ -1,6 +1,6 @@
-use colored::*;
+use colored::Colorize as _;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Printer;
 
 impl Printer {
@@ -8,24 +8,20 @@ impl Printer {
         Printer
     }
 
-    pub fn section_open(&self, title: &str) {
+    pub(crate) fn section_open(&self, title: &str) {
         println!("{}", title.bold());
     }
 
-    pub fn section_close(&self) {
+    pub(crate) fn section_close(&self) {
         println!("↳ {}\n", "Complete".bold());
     }
 
-    pub fn section_error(&self) {
+    pub(crate) fn section_error(&self) {
         println!("{}\n", "↳ Error".bold().red());
     }
 
-    pub fn debug(&self, message: &str) {
-        println!("{}", message.dimmed());
-    }
-
     pub fn info(&self, message: &str) {
-        println!("{}", message.normal());
+        println!("{}", message.dimmed());
     }
 
     pub fn warn(&self, message: &str) {

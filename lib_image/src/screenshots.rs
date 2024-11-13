@@ -1,5 +1,5 @@
 extern crate magick_rust;
-use lib_core::{define_cli_error, CliError, CriticalError, IOError, Tty};
+use lib_core::{define_cli_error, CliError, CriticalError, IOError, Printer};
 use magick_rust::{
     bindings::{DrawRoundRectangle, MagickBooleanType_MagickTrue},
     magick_wand_genesis, CompositeOperator, DrawingWand, FilterType, GravityType, MagickWand,
@@ -56,7 +56,7 @@ fn initialize_magick() {
 }
 
 fn with_image<P>(
-    tty: &Tty,
+    printer: &Printer,
     input: P,
     output: P,
     op: impl FnOnce(&mut MagickWand) -> Result<(), CliError>,
@@ -84,12 +84,12 @@ where
             .ok_or_else(|| CriticalError::new("invalid output path"))?,
     )
     .into_cli_res()?;
-    tty.debug(&format!("Image saved to {}.", output.as_ref().display()));
+    printer.info(&format!("Image saved to {}.", output.as_ref().display()));
     Ok(())
 }
 
 pub fn process_screenshot_basic<P>(
-    tty: &Tty,
+    printer: &Printer,
     input: P,
     output: P,
     app_bar_height: u32,
@@ -97,7 +97,7 @@ pub fn process_screenshot_basic<P>(
 where
     P: AsRef<Path>,
 {
-    with_image(tty, input, output, |wand| {
+    with_image(printer, input, output, |wand| {
         wand.crop_image(
             wand.get_image_width(),
             wand.get_image_height() - app_bar_height as usize,
@@ -110,7 +110,7 @@ where
 }
 
 pub fn process_screenshot_headline_text<P>(
-    tty: &Tty,
+    printer: &Printer,
     input: P,
     output: P,
     app_bar_height: u32,
@@ -122,7 +122,7 @@ pub fn process_screenshot_headline_text<P>(
 where
     P: AsRef<Path>,
 {
-    with_image(tty, input, output, |wand| {
+    with_image(printer, input, output, |wand| {
         let width = wand.get_image_width();
         let height = wand.get_image_height();
 
