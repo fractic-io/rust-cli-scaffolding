@@ -20,6 +20,10 @@ impl Printer {
         println!("{}\n", "↳ Error".bold().red());
     }
 
+    pub(crate) fn hr(&self) {
+        println!("\n{}\n", "-".repeat(80).dimmed());
+    }
+
     pub fn info(&self, message: &str) {
         println!("{}", message.dimmed());
     }

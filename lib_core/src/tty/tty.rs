@@ -93,7 +93,7 @@ impl Tty {
                 .or_default()
                 .insert(
                     key.to_string(),
-                    Value::String(serde_yaml::to_string(&value).unwrap()),
+                    serde_yaml::to_value(value).expect("failed to serialize value"),
                 );
         } else {
             if let Some(script_config) = self.preferences.scripts.get_mut(self.script_name) {
@@ -132,6 +132,10 @@ impl Tty {
             self.set_pref(key, input.clone());
             input
         }
+    }
+
+    pub fn hr(&self) {
+        self.printer.hr();
     }
 
     pub fn in_named_section<'a, T, F, Fut>(
