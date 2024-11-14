@@ -28,6 +28,10 @@ impl Printer {
         println!("{}", message.dimmed());
     }
 
+    pub fn important(&self, message: &str) {
+        println!("{}", message.bold());
+    }
+
     pub fn warn(&self, message: &str) {
         println!("{}", message.yellow());
     }

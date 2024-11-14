@@ -15,11 +15,11 @@ define_cli_error!(
 );
 
 pub async fn require_ses_identity(
-    region: &str,
     profile: &str,
+    region: &str,
     identity: &str,
 ) -> Result<(), CliError> {
-    let client = Client::new(&config_from_profile(region, profile).await);
+    let client = Client::new(&config_from_profile(profile, region).await);
 
     let result = client
         .get_identity_verification_attributes()

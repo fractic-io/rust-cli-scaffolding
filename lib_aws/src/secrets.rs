@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
-use aws_config::{profile::ProfileFileCredentialsProvider, BehaviorVersion, Region};
 use aws_sdk_secretsmanager::Client;
 use lib_core::{define_cli_error, CliError};
+
+use crate::shared_config::config_from_profile;
 
 define_cli_error!(
     AwsSecretsManagerError,
@@ -16,16 +17,7 @@ pub async fn get_secret(
     secret_id: &str,
     key: &str,
 ) -> Result<String, CliError> {
-    let shared_config = aws_config::defaults(BehaviorVersion::v2024_03_28())
-        .region(Region::new(region.to_string()))
-        .credentials_provider(
-            ProfileFileCredentialsProvider::builder()
-                .profile_name(profile)
-                .build(),
-        )
-        .load()
-        .await;
-    let client = Client::new(&shared_config);
+    let client = Client::new(&config_from_profile(profile, region).await);
 
     // Fetch secrets JSON.
     let secrets_output = client
