@@ -5,4 +5,4 @@ edition = "2021"
 
 [dependencies]
 lib_core = { path = "../lib_core" }
-magick_rust = "1.0.0"
+magick_rust = "^1.0.0"
