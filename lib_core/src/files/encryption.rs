@@ -24,7 +24,10 @@ fn derive_key(password: &str, salt: &[u8]) -> Result<[u8; 32], CliError> {
     Ok(key)
 }
 
-pub fn write_encrypted_file(filepath: &str, data: &str, password: &str) -> Result<(), CliError> {
+pub fn write_encrypted_file<P>(filepath: P, data: &str, password: &str) -> Result<(), CliError>
+where
+    P: AsRef<std::path::Path>,
+{
     // Generate a random 16-byte salt.
     let mut salt = [0u8; 16];
     OsRng.fill_bytes(&mut salt);
@@ -48,9 +51,7 @@ pub fn write_encrypted_file(filepath: &str, data: &str, password: &str) -> Resul
         .map_err(|e| FileEncryptionError::with_debug("failed to create ciphertext", &e))?;
 
     // Compute SHA256 hash of the plaintext.
-    let mut hasher = Sha256::new();
-    hasher.update(data_bytes);
-    let hash = hasher.finalize(); // [u8; 32]
+    let hash: [u8; 32] = Sha256::digest(data_bytes).into();
 
     // Write salt, nonce, hash, and ciphertext to file.
     let mut file = File::create(filepath)
@@ -67,7 +68,10 @@ pub fn write_encrypted_file(filepath: &str, data: &str, password: &str) -> Resul
     Ok(())
 }
 
-pub fn read_encrypted_file(filepath: &str, password: &str) -> Result<String, CliError> {
+pub fn read_encrypted_file<P>(filepath: P, password: &str) -> Result<String, CliError>
+where
+    P: AsRef<std::path::Path>,
+{
     // Open and read the file.
     let mut file = File::open(filepath)
         .map_err(|e| FileEncryptionError::with_debug("failed to open file", &e))?;
@@ -111,7 +115,10 @@ pub fn read_encrypted_file(filepath: &str, password: &str) -> Result<String, Cli
     Ok(plaintext_string)
 }
 
-pub fn encrypted_file_matches_content(filepath: &str, content: &str) -> Result<bool, CliError> {
+pub fn encrypted_file_matches_content<P>(filepath: P, content: &str) -> Result<bool, CliError>
+where
+    P: AsRef<std::path::Path>,
+{
     // Open and read the file.
     let mut file = File::open(filepath)
         .map_err(|e| FileEncryptionError::with_debug("failed to open file", &e))?;
@@ -130,9 +137,7 @@ pub fn encrypted_file_matches_content(filepath: &str, content: &str) -> Result<b
         .map_err(|e| FileEncryptionError::with_debug("failed to read hash", &e))?;
 
     // Compute the hash of the provided content.
-    let mut hasher = Sha256::new();
-    hasher.update(content.as_bytes());
-    let content_hash: [u8; 32] = hasher.finalize().into();
+    let content_hash: [u8; 32] = Sha256::digest(content).into();
 
     // Compare the hashes.
     Ok(hash_in_file == content_hash)
