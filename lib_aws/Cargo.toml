@@ -6,8 +6,9 @@ edition = "2021"
 [dependencies]
 aws-config = "^1.5.9"
 aws-sdk-cloudformation = "^1.54.0"
-aws-sdk-lambda = "^1.56.0"
+aws-sdk-s3 = "^1.60.0"
 aws-sdk-secretsmanager = "^1.52.0"
+aws-sdk-ses = "^1.51.0"
 aws-sdk-sts = "^1.48.0"
 lib_core = { path = "../lib_core" }
 serde = "^1.0.214"
