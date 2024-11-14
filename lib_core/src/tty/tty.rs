@@ -134,6 +134,10 @@ impl Tty {
         }
     }
 
+    pub fn warn(&self, message: &str) {
+        self.printer.warn(message);
+    }
+
     pub fn hr(&self) {
         self.printer.hr();
     }
