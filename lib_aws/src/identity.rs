@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use aws_config::{profile::ProfileFileCredentialsProvider, BehaviorVersion, Region};
 use aws_sdk_sts::Client;
 use lib_core::{define_cli_error, CliError};
@@ -12,7 +14,7 @@ define_cli_error!(
 
 pub async fn require_aws_profile(
     sso_session: &str,
-    account_id: &str,
+    account_id: impl Display,
     cli_role: &str,
 ) -> Result<String, CliError> {
     let profile = format!("{}-{}", cli_role, account_id);
@@ -26,10 +28,8 @@ pub async fn require_aws_profile(
         .load()
         .await;
     let client = Client::new(&shared_config);
-    client
-        .get_caller_identity()
-        .send()
-        .await
-        .map_err(|_| AwsProfileRequired::new(&profile, cli_role, account_id, sso_session))?;
+    client.get_caller_identity().send().await.map_err(|_| {
+        AwsProfileRequired::new(&profile, cli_role, &account_id.to_string(), sso_session)
+    })?;
     Ok(profile)
 }
