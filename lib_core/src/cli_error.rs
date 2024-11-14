@@ -31,7 +31,7 @@ impl fmt::Display for dyn CliErrorTrait {
             }
         }
         for annotation in self.annotations() {
-            write!(f, "\nNOTE: {}", annotation.bold().yellow())?;
+            write!(f, "\n\n{}", format!("NOTE: {}", annotation).bold().yellow())?;
         }
         Ok(())
     }
