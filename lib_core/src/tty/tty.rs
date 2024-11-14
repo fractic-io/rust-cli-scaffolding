@@ -220,14 +220,13 @@ impl Tty {
         Ok(())
     }
 
-    pub fn close<T>(mut self, final_result: Result<T, CliError>) -> Result<(), CliError> {
+    pub fn close<T>(mut self, final_result: Result<T, CliError>) {
         let cleanup = self.executor.resolve_background_processes(&self.printer);
         match final_result.and(cleanup) {
             Ok(()) => {
                 self.printer.success("SUCCESS");
                 self.printer
                     .info(&format!("Elapsed: {}.", print_elapsed(self.start_time)));
-                Ok(())
             }
             Err(e) => {
                 self.printer.error(&e.to_string());
