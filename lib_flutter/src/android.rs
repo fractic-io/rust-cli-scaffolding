@@ -1,6 +1,6 @@
 use std::hash::{DefaultHasher, Hash as _, Hasher as _};
 
-use lib_core::{CliError, Executor, Printer};
+use lib_core::{CliError, Executor, IOMode, Printer};
 
 pub fn create_android_emulator_if_not_exists(
     pr: &Printer,
@@ -9,7 +9,7 @@ pub fn create_android_emulator_if_not_exists(
     avd_image: &str,
 ) -> Result<(), CliError> {
     let avd_exists = ex
-        .execute("avdmanager", &["list", "avd"], None, false)?
+        .execute("avdmanager", &["list", "avd"], None, IOMode::Silent)?
         .split("\n")
         .any(|line| line.trim() == format!("Name: {}", avd_id));
 
@@ -18,7 +18,7 @@ pub fn create_android_emulator_if_not_exists(
             "Ensuring system image '{}' is installed...",
             avd_image
         ));
-        ex.execute("sdkmanager", &[avd_image], None, true)?;
+        ex.execute("sdkmanager", &[avd_image], None, IOMode::StreamOutput)?;
 
         pr.info(&format!(
             "Creating AVD '{}' with image '{}'...",
@@ -31,7 +31,7 @@ pub fn create_android_emulator_if_not_exists(
                 "create", "avd", "-n", avd_id, "-d", avd_id, "-k", avd_image, "--force",
             ],
             None,
-            true,
+            IOMode::StreamOutput,
         )?;
     } else {
         pr.info(&format!("AVD '{}' already exists.", avd_id));
@@ -68,7 +68,6 @@ pub fn start_android_emulator(
             "-delay-adb",
         ],
         None,
-        false,
     )?;
 
     // Wait for the emulator to start.
@@ -83,7 +82,7 @@ pub fn start_android_emulator(
             "while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done",
         ],
         None,
-        true,
+        IOMode::StreamOutput,
     )?;
 
     // Wait 5s.
@@ -100,7 +99,7 @@ pub fn kill_android_emulator(pr: &Printer, ex: &Executor, adb_id: String) -> Res
         "adb",
         &["-s", &adb_id, "shell", "reboot", "-p"],
         None,
-        false,
+        IOMode::Silent,
     )?;
 
     // Wait 5s.

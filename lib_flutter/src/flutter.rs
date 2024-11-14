@@ -33,7 +33,7 @@ pub fn run_flutter_integration_test(
         .collect();
     args.extend(setexprs.iter().map(|s| s.as_str()));
 
-    ex.execute("flutter", &args, Some(dir), true)?;
+    ex.execute("flutter", &args, Some(dir), lib_core::IOMode::StreamOutput)?;
 
     Ok(())
 }

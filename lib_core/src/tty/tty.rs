@@ -10,6 +10,7 @@ use std::pin::Pin;
 use crate::constants::{ANDROID_HOME, FLUTTER_HOME, JAVA_HOME};
 use crate::{define_cli_error, CliError};
 
+use super::executor::IOMode;
 use super::{Executor, Printer};
 
 define_cli_error!(
@@ -173,7 +174,7 @@ impl Tty {
             match dependency {
                 Dependency::Java => {
                     self.executor
-                        .execute("java", &["--version"], None, false)
+                        .execute("java", &["--version"], None, IOMode::Silent)
                         .map_err(|e| {
                             MissingDependency::with_debug(
                                 "Java",
@@ -186,7 +187,7 @@ impl Tty {
                 }
                 Dependency::AndroidSdk => {
                     self.executor
-                        .execute("sdkmanager", &["--version"], None, false)
+                        .execute("sdkmanager", &["--version"], None, IOMode::Silent)
                         .map_err(|e| {
                             MissingDependency::with_debug(
                                 "Android SDK",
@@ -199,7 +200,7 @@ impl Tty {
                 }
                 Dependency::Flutter => {
                     self.executor
-                        .execute("flutter", &["--version"], None, false)
+                        .execute("flutter", &["--version"], None, IOMode::Silent)
                         .map_err(|e| {
                             MissingDependency::with_debug(
                                 "Flutter",
@@ -212,7 +213,7 @@ impl Tty {
                 }
                 Dependency::Command(command) => {
                     self.executor
-                        .execute(command, &["--help"], None, false)
+                        .execute(command, &["--help"], None, IOMode::Silent)
                         .map_err(|e| {
                             MissingDependency::with_debug(
                                 command,

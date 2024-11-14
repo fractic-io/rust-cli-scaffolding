@@ -26,6 +26,18 @@ define_cli_error!(
     { exit_status: ExitStatus }
 );
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IOMode {
+    /// Command attaches directly to the current terminal. Output can not be
+    /// captured in this mode, so the result will be empty.
+    Attach,
+    /// Output is captured, and simultaneously streamed to the terminal.
+    StreamOutput,
+    /// Output is captured in the background. Only errors are streamed to the
+    /// terminal.
+    Silent,
+}
+
 #[derive(Debug)]
 pub struct Executor {
     pub(crate) env: HashMap<String, String>,
@@ -94,7 +106,7 @@ impl Executor {
         program: &str,
         args: &[&str],
         dir: Option<&str>,
-        stream_output: bool,
+        io_mode: IOMode,
     ) -> Result<String, CliError> {
         let abs_dir = fs::canonicalize(dir.unwrap_or(".")).map_err(|e| IOError::with_debug(&e))?;
         let mut child = std::process::Command::new(program)
@@ -102,43 +114,55 @@ impl Executor {
             .envs(&self.env)
             .args(args)
             .current_dir(abs_dir)
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
+            .stdin(match io_mode {
+                IOMode::Attach => std::process::Stdio::inherit(),
+                IOMode::StreamOutput | IOMode::Silent => std::process::Stdio::null(),
+            })
+            .stdout(match io_mode {
+                IOMode::Attach => std::process::Stdio::inherit(),
+                IOMode::StreamOutput | IOMode::Silent => std::process::Stdio::piped(),
+            })
+            .stderr(match io_mode {
+                IOMode::Attach => std::process::Stdio::inherit(),
+                IOMode::StreamOutput | IOMode::Silent => std::process::Stdio::piped(),
+            })
             .spawn()
             .map_err(|e| TtyExecuteError::with_debug(&e))?;
 
         let mut collected_output = String::new();
 
-        if let Some(mut stdout) = child.stdout.take() {
-            let mut buffer = [0; 1024];
-            loop {
-                match stdout.read(&mut buffer) {
-                    Ok(0) => break, // EOF reached
-                    Ok(n) => {
-                        let output = String::from_utf8_lossy(&buffer[..n]);
-                        if stream_output {
-                            print!("{}", output);
-                            io::stdout().flush().unwrap();
+        if io_mode != IOMode::Attach {
+            if let Some(mut stdout) = child.stdout.take() {
+                let mut buffer = [0; 1024];
+                loop {
+                    match stdout.read(&mut buffer) {
+                        Ok(0) => break, // EOF reached
+                        Ok(n) => {
+                            let output = String::from_utf8_lossy(&buffer[..n]);
+                            if io_mode == IOMode::StreamOutput {
+                                print!("{}", output);
+                                io::stdout().flush().unwrap();
+                            }
+                            collected_output.push_str(&output);
                         }
-                        collected_output.push_str(&output);
+                        Err(_) => break,
                     }
-                    Err(_) => break,
                 }
             }
-        }
 
-        if let Some(mut stderr) = child.stderr.take() {
-            let mut buffer = [0; 1024];
-            loop {
-                match stderr.read(&mut buffer) {
-                    Ok(0) => break, // EOF reached
-                    Ok(n) => {
-                        let output = String::from_utf8_lossy(&buffer[..n]);
-                        eprint!("{}", output);
-                        io::stderr().flush().unwrap();
-                        collected_output.push_str(&output);
+            if let Some(mut stderr) = child.stderr.take() {
+                let mut buffer = [0; 1024];
+                loop {
+                    match stderr.read(&mut buffer) {
+                        Ok(0) => break, // EOF reached
+                        Ok(n) => {
+                            let output = String::from_utf8_lossy(&buffer[..n]);
+                            eprint!("{}", output);
+                            io::stderr().flush().unwrap();
+                            collected_output.push_str(&output);
+                        }
+                        Err(_) => break,
                     }
-                    Err(_) => break,
                 }
             }
         }
@@ -156,7 +180,6 @@ impl Executor {
         program: &str,
         args: &[&str],
         dir: Option<&str>,
-        stream_output: bool,
     ) -> Result<(), CliError> {
         let abs_dir = fs::canonicalize(dir.unwrap_or(".")).map_err(|e| IOError::with_debug(&e))?;
         self.background_processes.push(
@@ -165,10 +188,7 @@ impl Executor {
                 .envs(&self.env)
                 .args(args)
                 .current_dir(abs_dir)
-                .stdout(match stream_output {
-                    true => std::process::Stdio::inherit(),
-                    false => std::process::Stdio::null(),
-                })
+                .stdout(std::process::Stdio::null())
                 .spawn()
                 .map_err(|e| TtyExecuteError::with_debug(&e))?,
         );
