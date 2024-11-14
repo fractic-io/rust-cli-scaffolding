@@ -32,6 +32,16 @@ where
 }
 
 #[track_caller]
+pub fn ln_s<S, D>(src: S, dst: D) -> Result<(), CliError>
+where
+    S: AsRef<Path>,
+    D: AsRef<Path>,
+{
+    std::os::unix::fs::symlink(src, dst).map_err(|e| IOError::with_debug(&e))?;
+    Ok(())
+}
+
+#[track_caller]
 pub fn mkdir_p<P>(path: P) -> Result<(), CliError>
 where
     P: AsRef<Path>,
