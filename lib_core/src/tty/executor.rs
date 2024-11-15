@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     fs,
     io::{self, Read as _, Write as _},
+    path::Path,
     process::ExitStatus,
 };
 
@@ -105,10 +106,13 @@ impl Executor {
         &self,
         program: &str,
         args: &[&str],
-        dir: Option<&str>,
+        dir: Option<&Path>,
         io_mode: IOMode,
     ) -> Result<String, CliError> {
-        let abs_dir = fs::canonicalize(dir.unwrap_or(".")).map_err(|e| IOError::with_debug(&e))?;
+        let abs_dir = match dir {
+            Some(p) => fs::canonicalize(p).map_err(|e| IOError::with_debug(&e))?,
+            None => std::env::current_dir().map_err(|e| IOError::with_debug(&e))?,
+        };
         let mut child = std::process::Command::new(program)
             .env_clear()
             .envs(&self.env)

@@ -32,6 +32,7 @@ pub enum Dependency {
     Java,
     AndroidSdk,
     Flutter,
+    CargoLambda,
     Command(String),
 }
 
@@ -205,6 +206,19 @@ impl Tty {
                             MissingDependency::with_debug(
                                 "Flutter",
                                 &FLUTTER_HOME,
+                                &self.preferences_path.display(),
+                                &self.executor.env,
+                                &e,
+                            )
+                        })?;
+                }
+                Dependency::CargoLambda => {
+                    self.executor
+                        .execute("cargo", &["lambda", "--version"], None, IOMode::Silent)
+                        .map_err(|e| {
+                            MissingDependency::with_debug(
+                                "Cargo Lambda",
+                                "PATH",
                                 &self.preferences_path.display(),
                                 &self.executor.env,
                                 &e,
