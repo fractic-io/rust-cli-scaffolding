@@ -16,4 +16,6 @@ pub const INCLUDE_IN_PATH: &'static [&'static str] = &[
     "$ANDROID_HOME/cmdline-tools/latest/bin",
     "$ANDROID_HOME/platform-tools",
     "$FLUTTER_HOME/bin",
+    "$HOME/.cargo/bin",
+    "/opt/homebrew/bin",
 ];
