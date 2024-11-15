@@ -5,7 +5,9 @@ use std::{
 
 use aws_sdk_cloudformation::{
     client::Waiters,
-    types::{Capability, Parameter},
+    error::SdkError,
+    operation::describe_stacks::DescribeStacksError,
+    types::{Capability, ChangeSetStatus, Parameter},
     Client,
 };
 use chrono::SecondsFormat;
@@ -29,6 +31,11 @@ define_cli_error!(
     "Failed to deploy CloudFormation stack '{stack_name}'.",
     { stack_name: &str }
 );
+define_cli_error!(
+    CloudFormationDeploymentFailedWithReason,
+    "Failed to deploy CloudFormation stack '{stack_name}': {reason}.",
+    { stack_name: &str, reason: &str }
+);
 
 const DEPLOY_WAIT_TIMEOUT: Duration = Duration::from_secs(30 * 60); // 30 minutes
 
@@ -39,15 +46,12 @@ pub enum StackDeploymentMethod {
 
 pub async fn stack_exists(profile: &str, region: &str, stack_name: &str) -> Result<bool, CliError> {
     let client = Client::new(&config_from_profile(profile, region).await);
-
-    let response = client
-        .describe_stacks()
-        .stack_name(stack_name)
-        .send()
-        .await
-        .map_err(|e| CloudFormationError::with_debug(&e))?;
-
-    Ok(!response.stacks.unwrap_or_default().is_empty())
+    let response = client.describe_stacks().stack_name(stack_name).send().await;
+    match response {
+        Ok(v) => Ok(!v.stacks.unwrap_or_default().is_empty()),
+        Err(SdkError::<DescribeStacksError>::ServiceError(_)) => Ok(false),
+        Err(e) => Err(CloudFormationError::with_debug(&e)),
+    }
 }
 
 pub async fn require_stack_outputs(
@@ -115,6 +119,10 @@ pub async fn require_stack_output(
     .unwrap())
 }
 
+fn derive_template_url(s3_bucket: &str, s3_region: &str, s3_key: &str) -> String {
+    format!("https://{s3_bucket}.s3.{s3_region}.amazonaws.com/{s3_key}")
+}
+
 pub async fn deploy_stack_from_s3(
     pr: &Printer,
     profile: &str,
@@ -128,7 +136,7 @@ pub async fn deploy_stack_from_s3(
 ) -> Result<(), CliError> {
     let client = Client::new(&config_from_profile(profile, stack_region).await);
 
-    let s3_url = format!("https://{s3_bucket}.s3.{s3_region}.amazonaws.com/{s3_key}");
+    let s3_url = derive_template_url(s3_bucket, s3_region, s3_key);
     let parameters = parameters
         .into_iter()
         .map(|(key, value)| {
@@ -156,7 +164,45 @@ pub async fn deploy_stack_from_s3(
                 .send()
                 .await
                 .map_err(|e| CloudFormationDeploymentFailed::with_debug(stack_name, &e))?;
-            pr.important(&format!("Created changeset '{}'.", changeset_name));
+            pr.info("Changeset creation initiated. Waiting...");
+            let result = client
+                .wait_until_change_set_create_complete()
+                .change_set_name(&changeset_name)
+                .wait(DEPLOY_WAIT_TIMEOUT)
+                .await
+                .map_err(|e| CloudFormationDeploymentFailed::with_debug(stack_name, &e))?
+                .into_result()
+                .map_err(|e| CloudFormationDeploymentFailed::with_debug(stack_name, &e))?;
+            match result.status() {
+                Some(ChangeSetStatus::CreateComplete) => {
+                    pr.important(&format!(
+                        "Changeset '{}' created successfully.",
+                        changeset_name
+                    ));
+                }
+                Some(ChangeSetStatus::Failed)
+                    if result
+                        .status_reason()
+                        .unwrap_or_default()
+                        .contains("didn't contain changes") =>
+                {
+                    pr.info("No changes detected. Deleting changeset...");
+                    client
+                        .delete_change_set()
+                        .change_set_name(&changeset_name)
+                        .stack_name(stack_name)
+                        .send()
+                        .await
+                        .map_err(|e| CloudFormationDeploymentFailed::with_debug(stack_name, &e))?;
+                    pr.info("Changeset deleted.");
+                }
+                _ => {
+                    return Err(CloudFormationDeploymentFailedWithReason::new(
+                        stack_name,
+                        result.status_reason().unwrap_or_default(),
+                    ));
+                }
+            }
         }
         StackDeploymentMethod::Direct => {
             pr.info(&format!(
