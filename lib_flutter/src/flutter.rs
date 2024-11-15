@@ -1,10 +1,10 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, path::Path};
 
 use lib_core::{CliError, Executor};
 
 pub fn run_flutter_integration_test(
     ex: &Executor,
-    dir: &str,
+    dir: &Path,
     adb_id: &str,
     driver: &str,
     target: &str,
