@@ -136,11 +136,9 @@ impl Tty {
         }
     }
 
-    pub fn warn(&self, message: &str) {
-        self.printer.warn(message);
-    }
-
-    pub fn hr(&self) {
+    pub fn warning(&self, message: &str) {
+        self.printer.hr();
+        self.printer.warn(&textwrap::wrap(message, 80).join("\n"));
         self.printer.hr();
     }
 
@@ -245,6 +243,7 @@ impl Tty {
 
     pub fn close<T>(mut self, final_result: Result<T, CliError>) {
         let cleanup = self.executor.resolve_background_processes(&self.printer);
+        self.printer.br();
         match final_result.and(cleanup) {
             Ok(()) => {
                 self.printer.success("SUCCESS");

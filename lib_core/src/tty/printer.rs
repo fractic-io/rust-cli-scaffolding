@@ -9,19 +9,23 @@ impl Printer {
     }
 
     pub(crate) fn section_open(&self, title: &str) {
-        println!("{}", title.bold());
+        println!("\n{}", title.bold());
     }
 
     pub(crate) fn section_close(&self) {
-        println!("↳ {}\n", "Complete".bold());
+        println!("↳ {}", "Complete".bold());
     }
 
     pub(crate) fn section_error(&self) {
-        println!("{}\n", "↳ Error".bold().red());
+        println!("{}", "↳ Error".bold().red());
+    }
+
+    pub(crate) fn br(&self) {
+        println!();
     }
 
     pub(crate) fn hr(&self) {
-        println!("\n{}\n", "-".repeat(80).dimmed());
+        println!("{}", "-".repeat(80).dimmed());
     }
 
     pub fn info(&self, message: &str) {
