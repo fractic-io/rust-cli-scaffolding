@@ -4,7 +4,7 @@ use aws_sdk_cloudformation::error::SdkError;
 use aws_sdk_s3::{
     operation::head_bucket::HeadBucketError, types::CreateBucketConfiguration, Client,
 };
-use lib_core::{define_cli_error, CliError, IOError};
+use lib_core::{define_cli_error, CliError, IOError, Printer};
 
 use crate::shared_config::config_from_profile;
 
@@ -21,12 +21,15 @@ pub async fn bucket_exists(profile: &str, region: &str, bucket: &str) -> Result<
     }
 }
 
+/// Returns true if new bucket was created.
 pub async fn create_bucket_if_not_exists(
+    pr: &Printer,
     profile: &str,
     region: &str,
     bucket: &str,
-) -> Result<(), CliError> {
+) -> Result<bool, CliError> {
     if !bucket_exists(profile, region, bucket).await? {
+        pr.info(&format!("Creating S3 bucket '{}'...", bucket));
         let client = Client::new(&config_from_profile(profile, region).await);
         client
             .create_bucket()
@@ -39,8 +42,12 @@ pub async fn create_bucket_if_not_exists(
             .send()
             .await
             .map_err(|e| S3Error::with_debug(&e))?;
+        pr.info(&format!("Bucket '{}' created.", bucket));
+        Ok(true)
+    } else {
+        pr.info(&format!("Bucket '{}' already exists.", bucket));
+        Ok(false)
     }
-    Ok(())
 }
 
 pub async fn upload_file_to_s3<P>(
@@ -74,13 +81,14 @@ where
     Ok(())
 }
 
+/// Returns the number of files uploaded.
 pub async fn upload_dir_to_s3<P>(
     profile: &str,
     region: &str,
     bucket: &str,
     key_prefix: &str,
     dir_path: P,
-) -> Result<(), CliError>
+) -> Result<usize, CliError>
 where
     P: AsRef<Path>,
 {
@@ -91,6 +99,7 @@ where
         return Err(S3InvalidUpload::new("path is not a directory"));
     }
     let client = Client::new(&config_from_profile(profile, region).await);
+    let mut count = 0;
     for entry in walkdir::WalkDir::new(&dir_path) {
         let entry = entry.map_err(|e| IOError::with_debug(&e))?;
         if entry.file_type().is_file() {
@@ -114,7 +123,8 @@ where
                 .send()
                 .await
                 .map_err(|e| S3Error::with_debug(&e))?;
+            count += 1;
         }
     }
-    Ok(())
+    Ok(count)
 }

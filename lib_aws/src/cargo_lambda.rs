@@ -1,10 +1,11 @@
 use std::path::Path;
 
-use lib_core::{CliError, Executor, IOMode};
+use lib_core::{CliError, Executor, IOMode, Printer};
 
 use crate::upload_dir_to_s3;
 
-pub async fn cargo_lambda_build_to_s3<P>(
+pub async fn cargo_lambda_build_to_s3(
+    pr: &Printer,
     ex: &Executor,
     crate_dir: &Path,
     profile: &str,
@@ -12,6 +13,7 @@ pub async fn cargo_lambda_build_to_s3<P>(
     bucket: &str,
     key_prefix: &str,
 ) -> Result<(), CliError> {
+    pr.info("Building binaries...");
     ex.execute(
         "cargo",
         &[
@@ -23,9 +25,10 @@ pub async fn cargo_lambda_build_to_s3<P>(
             "--arm64",
         ],
         Some(crate_dir),
-        IOMode::StreamOutput,
+        IOMode::Attach,
     )?;
-    upload_dir_to_s3(
+    pr.info("Uploading zip files to S3...");
+    let num_files_uploaded = upload_dir_to_s3(
         profile,
         region,
         bucket,
@@ -33,5 +36,9 @@ pub async fn cargo_lambda_build_to_s3<P>(
         crate_dir.join("target").join("lambda"),
     )
     .await?;
+    pr.info(&format!(
+        "Uploaded {} file(s) to '{}/'.",
+        num_files_uploaded, key_prefix
+    ));
     Ok(())
 }
