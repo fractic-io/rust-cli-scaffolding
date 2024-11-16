@@ -1,35 +1,35 @@
 use std::fmt;
 
 use colored::Colorize;
+use fractic_server_error::ServerErrorTag;
+
+const PRINT_WIDTH: usize = 80;
 
 pub trait CliErrorTrait: std::fmt::Debug + Send + Sync + 'static {
-    fn details(&self) -> CliErrorDetails;
+    fn tag(&self) -> Option<String>;
+    fn context(&self) -> &String;
+    fn message(&self) -> &String;
+    fn debug(&self) -> Option<&String>;
     fn annotations(&self) -> &Vec<&'static str>;
     fn annotate(&mut self, annotation: &'static str);
 }
 
 pub type CliError = Box<dyn CliErrorTrait>;
 
-#[derive(Debug)]
-pub enum CliErrorDetails<'a> {
-    Custom {
-        context: &'a String,
-        message: &'a String,
-        debug: Option<&'a String>,
-    },
-    FromServerError(&'a fractic_server_error::ServerError),
-}
-
 impl fmt::Display for dyn CliErrorTrait {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self.details() {
-            CliErrorDetails::Custom { message, .. } => {
-                write!(f, "{}\n{:#?}", message.bold(), self.details())?;
-            }
-            CliErrorDetails::FromServerError(error) => {
-                write!(f, "{}", error)?;
-            }
+        if let Some(tag) = self.tag() {
+            write!(f, "{}", tag.bold().red())?;
         }
+        write!(
+            f,
+            "{}",
+            textwrap::fill(self.message(), PRINT_WIDTH).bold().red()
+        )?;
+        if let Some(debug) = self.debug() {
+            write!(f, "\n\n{}", debug.red())?;
+        }
+        write!(f, "\n\n{}", self.context().dimmed())?;
         for annotation in self.annotations() {
             write!(f, "\n\n{}", format!("NOTE: {}", annotation).bold().yellow())?;
         }
@@ -93,19 +93,24 @@ macro_rules! define_cli_error {
                 Box::new($name {
                     context: std::backtrace::Backtrace::force_capture().to_string(),
                     message: format!($msg, $($arg = $arg),*),
-                    debug: Some(format!("{:?}", debug)),
+                    debug: Some(format!("{:#?}", debug)),
                     annotations: Vec::new(),
                 })
             }
         }
 
         impl $crate::CliErrorTrait for $name {
-            fn details(&self) -> $crate::CliErrorDetails {
-                $crate::CliErrorDetails::Custom {
-                    context: &self.context,
-                    message: &self.message,
-                    debug: self.debug.as_ref(),
-                }
+            fn tag(&self) -> Option<String> {
+                None
+            }
+            fn context(&self) -> &String {
+                &self.context
+            }
+            fn message(&self) -> &String {
+                &self.message
+            }
+            fn debug(&self) -> Option<&String> {
+                self.debug.as_ref()
             }
             fn annotations(&self) -> &Vec<&'static str> {
                 &self.annotations
@@ -131,8 +136,20 @@ define_cli_error!(IOError, "IO error.");
 struct FromServerError(fractic_server_error::ServerError, Vec<&'static str>);
 
 impl CliErrorTrait for FromServerError {
-    fn details(&self) -> CliErrorDetails {
-        CliErrorDetails::FromServerError(&self.0)
+    fn tag(&self) -> Option<String> {
+        match self.0.tag() {
+            ServerErrorTag::None => None,
+            _ => Some(format!("{:?}", self.0.tag())),
+        }
+    }
+    fn context(&self) -> &String {
+        self.0.context()
+    }
+    fn message(&self) -> &String {
+        self.0.message()
+    }
+    fn debug(&self) -> Option<&String> {
+        self.0.debug()
     }
     fn annotations(&self) -> &Vec<&'static str> {
         &self.1

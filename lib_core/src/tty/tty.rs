@@ -167,7 +167,7 @@ impl Tty {
                     .info(&format!("Elapsed: {}.", print_elapsed(self.start_time)));
             }
             Err(e) => {
-                self.printer.error(&e.to_string());
+                eprintln!("{e}");
                 std::process::exit(1)
             }
         }
