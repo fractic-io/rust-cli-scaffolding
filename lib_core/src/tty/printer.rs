@@ -23,8 +23,8 @@ impl Printer {
     pub fn subcommand_separator(&self, subcommand: &str) {
         println!(
             "{}\n{}\n",
-            format!("Starting subcommand '{subcommand}'...").bright_blue(),
-            "-".repeat(80).bright_blue()
+            format!("Starting subcommand '{subcommand}'...").green(),
+            "-".repeat(80).green()
         );
     }
 
