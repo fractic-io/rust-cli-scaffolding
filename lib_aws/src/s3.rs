@@ -51,6 +51,7 @@ pub async fn create_bucket_if_not_exists(
 }
 
 pub async fn upload_file_to_s3<P>(
+    pr: &Printer,
     profile: &str,
     region: &str,
     bucket: &str,
@@ -78,11 +79,13 @@ where
         .send()
         .await
         .map_err(|e| S3Error::with_debug(&e))?;
+    pr.info(&format!("Uploaded file to 's3://{}/{}'.", bucket, key));
     Ok(())
 }
 
 /// Returns the number of files uploaded.
 pub async fn upload_dir_to_s3<P>(
+    pr: &Printer,
     profile: &str,
     region: &str,
     bucket: &str,
@@ -126,5 +129,9 @@ where
             count += 1;
         }
     }
+    pr.info(&format!(
+        "Uploaded {} file(s) to 's3://{}/{}/'.",
+        count, bucket, key_prefix
+    ));
     Ok(count)
 }

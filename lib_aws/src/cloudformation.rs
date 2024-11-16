@@ -10,7 +10,7 @@ use aws_sdk_cloudformation::{
     types::{Capability, ChangeSetStatus, Parameter},
     Client,
 };
-use chrono::SecondsFormat;
+use aws_smithy_runtime_api::client::waiters::error::WaiterError;
 use lib_core::{define_cli_error, CliError, Printer};
 
 use crate::shared_config::config_from_profile;
@@ -152,7 +152,7 @@ pub async fn deploy_stack_from_s3(
                 "Creating CloudFormation changeset for stack '{}' from S3 URL '{}'...",
                 stack_name, s3_url
             ));
-            let changeset_name = chrono::Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
+            let changeset_name = format!("changeset-{}", chrono::Utc::now().timestamp());
             client
                 .create_change_set()
                 .stack_name(stack_name)
@@ -164,27 +164,34 @@ pub async fn deploy_stack_from_s3(
                 .send()
                 .await
                 .map_err(|e| CloudFormationDeploymentFailed::with_debug(stack_name, &e))?;
-            pr.info("Changeset creation initiated. Waiting...");
+            pr.info("Changeset creation initiated. Polling status...");
             let result = client
                 .wait_until_change_set_create_complete()
+                .stack_name(stack_name)
                 .change_set_name(&changeset_name)
                 .wait(DEPLOY_WAIT_TIMEOUT)
                 .await
-                .map_err(|e| CloudFormationDeploymentFailed::with_debug(stack_name, &e))?
-                .into_result()
-                .map_err(|e| CloudFormationDeploymentFailed::with_debug(stack_name, &e))?;
-            match result.status() {
-                Some(ChangeSetStatus::CreateComplete) => {
+                .map(|r| r.into_result());
+            match result {
+                Ok(Ok(final_poll))
+                    if final_poll.status() == Some(&ChangeSetStatus::CreateComplete) =>
+                {
                     pr.important(&format!(
                         "Changeset '{}' created successfully.",
                         changeset_name
                     ));
                 }
-                Some(ChangeSetStatus::Failed)
-                    if result
-                        .status_reason()
-                        .unwrap_or_default()
-                        .contains("didn't contain changes") =>
+                Err(WaiterError::FailureState(failure_state))
+                    if failure_state
+                        .final_poll()
+                        .as_result()
+                        .map_or(false, |final_poll| {
+                            final_poll.status() == Some(&ChangeSetStatus::Failed)
+                                && final_poll
+                                    .status_reason()
+                                    .unwrap_or_default()
+                                    .contains("didn't contain changes")
+                        }) =>
                 {
                     pr.info("No changes detected. Deleting changeset...");
                     client
@@ -196,36 +203,65 @@ pub async fn deploy_stack_from_s3(
                         .map_err(|e| CloudFormationDeploymentFailed::with_debug(stack_name, &e))?;
                     pr.info("Changeset deleted.");
                 }
-                _ => {
-                    return Err(CloudFormationDeploymentFailedWithReason::new(
-                        stack_name,
-                        result.status_reason().unwrap_or_default(),
-                    ));
+                e @ _ => {
+                    return Err(CloudFormationDeploymentFailed::with_debug(stack_name, &e));
                 }
             }
         }
         StackDeploymentMethod::Direct => {
-            pr.info(&format!(
-                "Deploying CloudFormation stack '{}' from S3 URL '{}'...",
-                stack_name, s3_url
-            ));
-            client
-                .create_stack()
-                .stack_name(stack_name)
-                .template_url(s3_url)
-                .capabilities(Capability::CapabilityNamedIam)
-                .set_parameters(Some(parameters))
-                .send()
-                .await
-                .map_err(|e| CloudFormationDeploymentFailed::with_debug(stack_name, &e))?;
-            pr.info("Deployment initiated. Waiting...");
-            client
-                .wait_until_stack_create_complete()
-                .stack_name(stack_name)
-                .wait(DEPLOY_WAIT_TIMEOUT)
-                .await
-                .map_err(|e| CloudFormationDeploymentFailed::with_debug(stack_name, &e))?;
-            pr.important("Deployment complete.");
+            let stack_exists = stack_exists(profile, stack_region, stack_name).await?;
+            match stack_exists {
+                true => {
+                    pr.info(&format!(
+                        "Updating CloudFormation stack '{}' from S3 URL '{}'...",
+                        stack_name, s3_url
+                    ));
+                    client
+                        .update_stack()
+                        .stack_name(stack_name)
+                        .template_url(s3_url)
+                        .capabilities(Capability::CapabilityNamedIam)
+                        .set_parameters(Some(parameters))
+                        .send()
+                        .await
+                        .map_err(|e| CloudFormationDeploymentFailed::with_debug(stack_name, &e))?;
+                }
+                false => {
+                    pr.info(&format!(
+                        "Creating CloudFormation stack '{}' from S3 URL '{}'...",
+                        stack_name, s3_url
+                    ));
+                    client
+                        .create_stack()
+                        .stack_name(stack_name)
+                        .template_url(s3_url)
+                        .capabilities(Capability::CapabilityNamedIam)
+                        .set_parameters(Some(parameters))
+                        .send()
+                        .await
+                        .map_err(|e| CloudFormationDeploymentFailed::with_debug(stack_name, &e))?;
+                }
+            }
+            pr.info("Deployment initiated. Polling status...");
+            match stack_exists {
+                true => {
+                    client
+                        .wait_until_stack_update_complete()
+                        .stack_name(stack_name)
+                        .wait(DEPLOY_WAIT_TIMEOUT)
+                        .await
+                        .map_err(|e| CloudFormationDeploymentFailed::with_debug(stack_name, &e))?;
+                }
+                false => {
+                    client
+                        .wait_until_stack_create_complete()
+                        .stack_name(stack_name)
+                        .wait(DEPLOY_WAIT_TIMEOUT)
+                        .await
+                        .map_err(|e| CloudFormationDeploymentFailed::with_debug(stack_name, &e))?;
+                }
+            }
+            pr.info("Deployment succeeded.");
         }
     }
 

@@ -28,7 +28,8 @@ pub async fn cargo_lambda_build_to_s3(
         IOMode::Attach,
     )?;
     pr.info("Uploading zip files to S3...");
-    let num_files_uploaded = upload_dir_to_s3(
+    upload_dir_to_s3(
+        pr,
         profile,
         region,
         bucket,
@@ -36,9 +37,5 @@ pub async fn cargo_lambda_build_to_s3(
         crate_dir.join("target").join("lambda"),
     )
     .await?;
-    pr.info(&format!(
-        "Uploaded {} file(s) to '{}/'.",
-        num_files_uploaded, key_prefix
-    ));
     Ok(())
 }
