@@ -15,9 +15,9 @@ define_cli_error!(
 );
 
 define_cli_error!(
-    AwsSecretSubkeyNotFound,
-    "Secret '{secret_id}' in region '{region}' does not contain subkey {subkey}.",
-    { secret_id: &str, region: &str, subkey: &str }
+    AwsSecretSubkeysNotFound,
+    "Secret '{secret_id}' in region '{region}' does not contain subkey(s) {missing_subkeys:?}.",
+    { secret_id: &str, region: &str, missing_subkeys: &HashSet<String> }
 );
 
 define_cli_error!(
@@ -52,23 +52,59 @@ pub async fn get_secret(profile: &str, region: &str, secret_id: &str) -> Result<
     }
 }
 
+pub async fn get_secret_subkeys(
+    profile: &str,
+    region: &str,
+    secret_id: &str,
+    subkeys: HashSet<String>,
+) -> Result<HashMap<String, String>, CliError> {
+    let raw = get_secret(profile, region, secret_id).await?;
+    let secrets_map = serde_json::from_str::<HashMap<String, String>>(&raw).map_err(|e| {
+        FailedToFetchAwsSecret::with_debug(secret_id, region, "could not parse JSON", &e)
+    })?;
+
+    let result = secrets_map
+        .into_iter()
+        .filter_map(|(k, v)| {
+            if subkeys.contains(&k) {
+                Some((k, v))
+            } else {
+                None
+            }
+        })
+        .collect::<HashMap<_, _>>();
+
+    if result.len() != subkeys.len() {
+        let missing_keys = subkeys
+            .difference(&result.keys().cloned().collect())
+            .map(|k| k.to_string())
+            .collect::<HashSet<_>>();
+        return Err(AwsSecretSubkeysNotFound::new(
+            secret_id,
+            region,
+            &missing_keys,
+        ));
+    }
+
+    Ok(result)
+}
+
 pub async fn get_secret_subkey(
     profile: &str,
     region: &str,
     secret_id: &str,
     subkey: &str,
 ) -> Result<String, CliError> {
-    // Fetch secrets JSON.
-    let raw = get_secret(profile, region, secret_id).await?;
-    let json = serde_json::from_str::<HashMap<String, String>>(&raw).map_err(|e| {
-        FailedToFetchAwsSecret::with_debug(secret_id, region, "could not parse JSON", &e)
-    })?;
-
-    // Fetch required key from JSON.
-    Ok(json
-        .get(subkey)
-        .cloned()
-        .ok_or_else(|| AwsSecretSubkeyNotFound::new(secret_id, region, subkey))?)
+    Ok(get_secret_subkeys(
+        profile,
+        region,
+        secret_id,
+        HashSet::from([subkey.to_string()]),
+    )
+    .await?
+    .into_values()
+    .next()
+    .unwrap())
 }
 
 pub async fn secret_replica_regions(
