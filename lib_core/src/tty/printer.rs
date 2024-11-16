@@ -20,6 +20,14 @@ impl Printer {
         println!("{}\n", "↳ Error".bold().red());
     }
 
+    pub fn subcommand_separator(&self, subcommand: &str) {
+        println!(
+            "{}\n{}\n",
+            format!("Starting subcommand '{subcommand}'...").bright_blue(),
+            "-".repeat(80).bright_blue()
+        );
+    }
+
     pub fn caution_box(&self, message: &str) {
         println!("{}", "-".repeat(80).dimmed());
         self.warn(&textwrap::wrap(message, 80).join("\n"));

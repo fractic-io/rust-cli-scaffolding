@@ -45,6 +45,10 @@ impl Tty {
         }
     }
 
+    pub fn subcommand_separator(&self, subcommand: &str) {
+        self.printer.subcommand_separator(subcommand);
+    }
+
     pub fn in_init_section<'a, T, F, Fut>(
         &'a mut self,
         f: F,
