@@ -27,6 +27,7 @@ pub enum Dependency {
     AndroidSdk,
     Flutter,
     CargoLambda,
+    AwsSam,
     Command(String),
 }
 
@@ -140,6 +141,18 @@ impl Tty {
                         .map_err(|e| {
                             MissingDependency::with_debug(
                                 "Cargo Lambda",
+                                "PATH",
+                                &self.executor.env,
+                                &e,
+                            )
+                        })?;
+                }
+                Dependency::AwsSam => {
+                    self.executor
+                        .execute("sam", &["--version"], None, IOMode::Silent)
+                        .map_err(|e| {
+                            MissingDependency::with_debug(
+                                "AWS CLI SAM",
                                 "PATH",
                                 &self.executor.env,
                                 &e,
