@@ -42,7 +42,7 @@ pub async fn create_bucket_if_not_exists(
             .send()
             .await
             .map_err(|e| S3Error::with_debug(&e))?;
-        pr.info(&format!("Bucket '{}' created.", bucket));
+        pr.info("Bucket created.");
         Ok(true)
     } else {
         pr.info(&format!("Bucket '{}' already exists.", bucket));
