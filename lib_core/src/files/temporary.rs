@@ -2,7 +2,7 @@ use std::path::Path;
 
 use tempfile::NamedTempFile;
 
-use crate::{define_cli_error, CliError};
+use crate::{define_cli_error, CliError, Printer};
 
 use super::{ln_s, rm};
 
@@ -37,14 +37,16 @@ where
 /// and only a symlink to 'path'. This way, if the function fails unexpectedly,
 /// the temporary file will still be deleted even if cleanup doesn't run (just
 /// leaving a dangling symlink).
-pub fn with_written_to_tmp_file_at_path<F, R>(
-    content: Option<String>,
+pub fn with_written_to_tmp_file_at_path<F, R, C: AsRef<[u8]>>(
+    pr: &Printer,
+    content: C,
     path: &Path,
     op: F,
 ) -> Result<R, CliError>
 where
     F: FnOnce() -> Result<R, CliError>,
 {
+    pr.info(&format!("Writing to temporary file at {}.", path.display()));
     if path.exists() {
         return Err(TemporaryFileError::new(
             "a file at the desired path already exists",
@@ -52,10 +54,8 @@ where
     }
     let temp_file = NamedTempFile::new()
         .map_err(|e| TemporaryFileError::with_debug("failed to create NamedTempFile", &e))?;
-    if let Some(text) = &content {
-        std::fs::write(&temp_file.path(), text)
-            .map_err(|e| TemporaryFileError::with_debug("failed to write content", &e))?;
-    }
+    std::fs::write(&temp_file.path(), content)
+        .map_err(|e| TemporaryFileError::with_debug("failed to write content", &e))?;
     ln_s(&temp_file.path(), path)
         .map_err(|e| TemporaryFileError::with_debug("failed to create symlink", &e))?;
     let result = op();
