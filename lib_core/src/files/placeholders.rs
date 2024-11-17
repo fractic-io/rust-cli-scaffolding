@@ -28,33 +28,26 @@ pub fn replace_all_placeholders_in_file(
     // Use a regex to find placeholders of the form {{Key}}.
     let placeholder_pattern =
         Regex::new(r"\{\{(\w+)\}\}").expect("hardcoded regex should be valid");
-    let mut all_placeholders = Vec::new();
 
     // Replace all placeholders with their corresponding values.
+    let mut unknown_keys = Vec::new();
     let result = placeholder_pattern.replace_all(&file_content, |caps: &regex::Captures| {
-        let key = &caps[1]; // Extract the key inside {{ }}
-        all_placeholders.push(key.to_string());
-        placeholders
-            .get(key)
-            .cloned()
-            .unwrap_or_else(|| caps[0].to_string())
+        let key = &caps[1]; // The content inside {{ }}.
+        if let Some(value) = placeholders.get(key) {
+            value.clone()
+        } else {
+            unknown_keys.push(key.to_string());
+            caps[0].to_string() // The full '{{Key}}' string.
+        }
     });
 
     let replaced_content = result.into_owned();
 
-    // Check if there are any unreplaced placeholders.
-    if error_if_unreplaced_placeholders_remain {
-        let unreplaced: Vec<_> = all_placeholders
-            .into_iter()
-            .filter(|key| !placeholders.contains_key(key))
-            .collect();
-
-        if !unreplaced.is_empty() {
-            return Err(UnreplacedPlaceholdersRemain::new(
-                &src.display(),
-                &unreplaced,
-            ));
-        }
+    if error_if_unreplaced_placeholders_remain && !unknown_keys.is_empty() {
+        return Err(UnreplacedPlaceholdersRemain::new(
+            &src.display(),
+            &unknown_keys,
+        ));
     }
 
     // Write the updated content back to the file.
