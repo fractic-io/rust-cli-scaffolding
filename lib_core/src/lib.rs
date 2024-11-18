@@ -1,7 +1,6 @@
 mod cli_error;
 mod common_entities;
 mod config;
-mod constants;
 mod files;
 mod processing;
 mod tty;
