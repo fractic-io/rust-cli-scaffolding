@@ -24,7 +24,7 @@ impl Printer {
         println!(
             "{}\n{}\n",
             format!("Starting subcommand '{subcommand}'...").green(),
-            "-".repeat(80).green()
+            "─".repeat(80).green()
         );
     }
 
