@@ -1,6 +1,11 @@
 use std::{collections::HashMap, path::Path};
 
-use lib_core::{CliError, Executor};
+use lib_core::{CliError, Executor, Printer};
+
+pub enum BuildFor {
+    Android,
+    Ios,
+}
 
 pub fn run_flutter_integration_test(
     ex: &Executor,
@@ -35,5 +40,31 @@ pub fn run_flutter_integration_test(
 
     ex.execute("flutter", &args, Some(dir), lib_core::IOMode::StreamOutput)?;
 
+    Ok(())
+}
+
+pub fn flutter_build_release(
+    pr: &Printer,
+    ex: &Executor,
+    app: &Path,
+    os: BuildFor,
+    flavor: Option<&str>,
+) -> Result<(), CliError> {
+    let mut args = vec!["build"];
+    match os {
+        BuildFor::Android => {
+            pr.info("Building Android app bundle...");
+            args.push("appbundle")
+        }
+        BuildFor::Ios => {
+            pr.info("Building iOS app...");
+            args.push("ios")
+        }
+    }
+    args.push("--release");
+    if let Some(flavor) = flavor {
+        args.extend(&["--flavor", flavor]);
+    }
+    ex.execute("flutter", &args, Some(app), lib_core::IOMode::StreamOutput)?;
     Ok(())
 }
