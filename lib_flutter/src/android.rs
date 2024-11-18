@@ -1,6 +1,12 @@
 use std::hash::{DefaultHasher, Hash as _, Hasher as _};
 
-use lib_core::{CliError, Executor, IOMode, Printer};
+use lib_core::{define_cli_error, CliError, Executor, IOMode, Printer};
+
+define_cli_error!(
+    AndroidSystemImageMissing,
+    "The required system image '{system_image}' is not installed, and failed to install with sdkmanager. If running with Nix, installing at runtime is not possible due to the read-only filesystem (instead, the system image should be declared in the flakes.nix).",
+    { system_image: &str }
+);
 
 pub fn create_android_emulator_if_not_exists(
     pr: &Printer,
@@ -18,7 +24,8 @@ pub fn create_android_emulator_if_not_exists(
             "Ensuring system image '{}' is installed...",
             avd_image
         ));
-        ex.execute("sdkmanager", &[avd_image], None, IOMode::StreamOutput)?;
+        ex.execute("sdkmanager", &[avd_image], None, IOMode::StreamOutput)
+            .map_err(|e| AndroidSystemImageMissing::with_debug(avd_image, &e))?;
 
         pr.info(&format!(
             "Creating AVD '{}' with image '{}'...",
