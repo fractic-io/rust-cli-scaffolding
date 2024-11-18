@@ -61,6 +61,7 @@ pub fn start_android_emulator(
             "-no-snapshot",
             "-wipe-data",
             "-no-window",
+            "-no-audio",
             "-port",
             &port.to_string(),
             "-avd",
