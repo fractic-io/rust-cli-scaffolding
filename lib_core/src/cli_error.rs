@@ -128,6 +128,7 @@ macro_rules! define_cli_error {
 define_cli_error!(CriticalError, "Unexpected: {details}.", { details: &str });
 define_cli_error!(MultithreadingError, "Error executing child threads.");
 define_cli_error!(IOError, "IO error.");
+define_cli_error!(InvalidUTF8, "Could not parse bytes as UTF-8.");
 
 // Conversion from ServerError.
 // --------------------------------------------------
