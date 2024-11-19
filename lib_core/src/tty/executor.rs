@@ -31,6 +31,8 @@ pub enum IOMode {
     /// Output is captured in the background. Only errors are streamed to the
     /// terminal.
     Silent,
+    /// Output and errors are captured. Neither is output to the terminal.
+    Mute,
 }
 
 #[derive(Debug)]
@@ -61,15 +63,19 @@ impl Executor {
             .current_dir(abs_dir)
             .stdin(match io_mode {
                 IOMode::Attach => std::process::Stdio::inherit(),
-                IOMode::StreamOutput | IOMode::Silent => std::process::Stdio::null(),
+                IOMode::StreamOutput | IOMode::Silent | IOMode::Mute => std::process::Stdio::null(),
             })
             .stdout(match io_mode {
                 IOMode::Attach => std::process::Stdio::inherit(),
-                IOMode::StreamOutput | IOMode::Silent => std::process::Stdio::piped(),
+                IOMode::StreamOutput | IOMode::Silent | IOMode::Mute => {
+                    std::process::Stdio::piped()
+                }
             })
             .stderr(match io_mode {
                 IOMode::Attach => std::process::Stdio::inherit(),
-                IOMode::StreamOutput | IOMode::Silent => std::process::Stdio::piped(),
+                IOMode::StreamOutput | IOMode::Silent | IOMode::Mute => {
+                    std::process::Stdio::piped()
+                }
             })
             .spawn()
             .map_err(|e| TtyExecuteError::with_debug(&e))?;
@@ -102,8 +108,10 @@ impl Executor {
                         Ok(0) => break, // EOF reached
                         Ok(n) => {
                             let output = String::from_utf8_lossy(&buffer[..n]);
-                            eprint!("{}", output);
-                            io::stderr().flush().unwrap();
+                            if io_mode != IOMode::Mute {
+                                eprint!("{}", output);
+                                io::stderr().flush().unwrap();
+                            }
                             collected_output.push_str(&output);
                         }
                         Err(_) => break,
@@ -169,7 +177,7 @@ impl Executor {
     }
 
     pub(crate) fn sudo_is_cached(&self) -> bool {
-        self.execute("sudo", &["echo", "-n"], None, IOMode::Silent)
+        self.execute("sudo", &["-n", "true"], None, IOMode::Mute)
             .is_ok()
     }
 
