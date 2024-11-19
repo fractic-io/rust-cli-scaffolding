@@ -39,7 +39,7 @@ impl Printer {
     }
 
     pub fn important(&self, message: &str) {
-        println!("{}", message.bold());
+        println!("{}", message.bright_blue());
     }
 
     pub fn warn(&self, message: &str) {
