@@ -26,7 +26,6 @@ pub fn run_flutter_integration_test(
         "--no-pub",
         "--device-id",
         adb_id,
-        "--suppress-analytics",
     ];
     if let Some(flavor) = flavor {
         args.extend(&["--flavor", flavor]);
