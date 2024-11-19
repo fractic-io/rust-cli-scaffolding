@@ -1,10 +1,22 @@
-use std::{collections::HashMap, path::Path};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
-use lib_core::{CliError, Executor, IOMode, Printer};
+use lib_core::{define_cli_error, CliError, Executor, IOMode, Printer};
 
+define_cli_error!(
+    FlutterBuildTypeDoesntSupportInstall,
+    "The build type {build_type:?} doesn't support installation.",
+    { build_type: &BuildFor }
+);
+
+#[derive(Debug, Clone)]
 pub enum BuildFor {
     Android,
+    AndroidPublish,
     Ios,
+    Web { base_href: String },
 }
 
 pub fn run_flutter_integration_test(
@@ -42,30 +54,44 @@ pub fn run_flutter_integration_test(
     Ok(())
 }
 
+/// Returns the path to the generated output.
 pub fn flutter_build_release(
     pr: &Printer,
     ex: &Executor,
     dir: &Path,
     os: BuildFor,
     flavor: Option<&str>,
-) -> Result<(), CliError> {
+) -> Result<PathBuf, CliError> {
     let mut args = vec!["build"];
-    match os {
+    let flavor_str = flavor.map_or("".to_string(), |f| format!("-{f}"));
+    let output_path = match os {
         BuildFor::Android => {
+            pr.info("Building Android apk...");
+            args.push("apk");
+            format!("build/app/outputs/flutter-apk/app${flavor_str}-release.apk")
+        }
+        BuildFor::AndroidPublish => {
             pr.info("Building Android app bundle...");
             args.push("appbundle");
+            format!("build/app/outputs/bundle/release/app${flavor_str}-release.aab")
         }
         BuildFor::Ios => {
             pr.info("Building iOS app...");
             args.push("ios");
+            "build/ios/iphoneos/Runner.app".to_string()
         }
-    }
+        BuildFor::Web { ref base_href } => {
+            pr.info("Building web app...");
+            args.extend(&["web", "--base-href", base_href]);
+            "build/web".to_string()
+        }
+    };
     args.push("--release");
     if let Some(flavor) = flavor {
         args.extend(&["--flavor", flavor]);
     }
     ex.execute("flutter", &args, Some(dir), IOMode::StreamOutput)?;
-    Ok(())
+    Ok(dir.join(output_path))
 }
 
 pub fn flutter_install(
@@ -75,27 +101,7 @@ pub fn flutter_install(
     os: BuildFor,
     flavor: Option<&str>,
 ) -> Result<(), CliError> {
-    let mut build_args = vec!["build"];
-    match os {
-        BuildFor::Android => {
-            pr.info("Building Android apk...");
-            build_args.push("apk");
-        }
-        BuildFor::Ios => {
-            pr.info("Building iOS app...");
-            build_args.push("ios");
-        }
-    }
-    build_args.push("--release");
-    if let Some(flavor) = flavor {
-        build_args.extend(&["--flavor", flavor]);
-    }
-    ex.execute(
-        "flutter",
-        &build_args,
-        Some(dir),
-        lib_core::IOMode::StreamOutput,
-    )?;
+    let output_path = flutter_build_release(pr, ex, dir, os.clone(), flavor)?;
 
     pr.info("Installing...");
     let mut install_args = vec!["install"];
@@ -106,13 +112,9 @@ pub fn flutter_install(
         BuildFor::Android => {
             // First try directly installing with adb (to do "streamed install"
             // if the app is already exists), but fall back to flutter install.
-            let executable_path = match flavor {
-                Some(f) => format!("build/app/outputs/flutter-apk/app-{f}-release.apk"),
-                None => "build/app/outputs/flutter-apk/app-release.apk".to_string(),
-            };
             ex.execute(
                 "adb",
-                &["install", "-r", &executable_path],
+                &["install", "-r", &output_path.to_string_lossy()],
                 Some(dir),
                 IOMode::StreamOutput,
             )
@@ -121,6 +123,7 @@ pub fn flutter_install(
         BuildFor::Ios => {
             ex.execute("flutter", &install_args, Some(dir), IOMode::StreamOutput)?;
         }
+        _ => return Err(FlutterBuildTypeDoesntSupportInstall::new(&os)),
     }
 
     Ok(())
