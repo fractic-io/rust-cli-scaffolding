@@ -31,6 +31,15 @@ impl Tty {
         self.printer.subcommand_separator(subcommand);
     }
 
+    pub fn cache_sudo(&self) -> Result<(), CliError> {
+        if !self.executor.sudo_is_cached() {
+            self.printer.caution_box("This script requires sudo. Enter your password to cache credentials for the duration of the script.");
+            self.executor.cache_sudo()?;
+            self.printer.info("Credentials cached.\n");
+        }
+        Ok(())
+    }
+
     pub fn in_init_section<'a, T, F, Fut>(
         &'a mut self,
         f: F,

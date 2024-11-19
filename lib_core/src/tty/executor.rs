@@ -167,4 +167,14 @@ impl Executor {
             .collect::<Result<_, CliError>>()
             .map_err(|e| e)
     }
+
+    pub(crate) fn sudo_is_cached(&self) -> bool {
+        self.execute("sudo", &["echo", "-n"], None, IOMode::Silent)
+            .is_ok()
+    }
+
+    pub(crate) fn cache_sudo(&self) -> Result<(), CliError> {
+        self.execute("sudo", &["echo", "-n"], None, IOMode::Attach)?;
+        Ok(())
+    }
 }
