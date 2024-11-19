@@ -1,6 +1,6 @@
-use std::hash::{DefaultHasher, Hash as _, Hasher as _};
-
-use lib_core::{define_cli_error, CliError, Executor, IOMode, Printer};
+use lib_core::{
+    define_cli_error, deterministic_number_from_string, CliError, Executor, IOMode, Printer,
+};
 
 define_cli_error!(
     AndroidSystemImageMissing,
@@ -122,13 +122,4 @@ pub fn kill_android_emulator(pr: &Printer, ex: &Executor, adb_id: String) -> Res
 
 fn port_number_from_avd_id(avd_id: &str) -> u32 {
     deterministic_number_from_string(avd_id, 5600, 5800)
-}
-
-fn deterministic_number_from_string(input: &str, min: u32, max: u32) -> u32 {
-    let mut hasher = DefaultHasher::new();
-    input.hash(&mut hasher);
-    let hash_value = hasher.finish();
-
-    // Scale the hash value to the range [min, max]
-    min + (hash_value % (max - min + 1) as u64) as u32
 }
