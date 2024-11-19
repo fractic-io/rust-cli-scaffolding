@@ -14,7 +14,7 @@ pub fn vim_custom(
 ) -> Result<Option<String>, CliError> {
     let has_initial_text = text.is_some();
 
-    let edited = with_written_to_tmp_file(text, |path| {
+    let edited = with_written_to_tmp_file(text.unwrap_or_default(), |path| {
         let mut vim = std::process::Command::new("vim");
         vim.arg(path);
         if start_insert_mode_if_empty && !has_initial_text {
