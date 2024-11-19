@@ -1,5 +1,3 @@
-use std::fmt::Display;
-
 use aws_sdk_sts::Client;
 use lib_core::{define_cli_error, CliError};
 
@@ -15,7 +13,7 @@ define_cli_error!(
 
 pub async fn require_aws_profile(
     sso_session: &str,
-    account_id: impl Display,
+    account_id: &str,
     cli_role: &str,
 ) -> Result<String, CliError> {
     let profile = format!("{}-{}", cli_role, account_id);
