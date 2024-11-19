@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{os::unix::fs::PermissionsExt, path::Path};
 
 use crate::{CliError, IOError};
 
@@ -65,5 +65,16 @@ where
     P: AsRef<Path>,
 {
     std::fs::remove_dir(path).map_err(|e| IOError::with_debug(&e))?;
+    Ok(())
+}
+
+/// 'mode' argument can be hardcoded conventiently as 0o644, 0o755, etc.
+#[track_caller]
+pub fn chmod<P>(path: P, mode: u32) -> Result<(), CliError>
+where
+    P: AsRef<Path>,
+{
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+        .map_err(|e| IOError::with_debug(&e))?;
     Ok(())
 }
