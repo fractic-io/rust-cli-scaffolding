@@ -5,6 +5,7 @@ use aws_sdk_s3::{
     operation::head_bucket::HeadBucketError, types::CreateBucketConfiguration, Client,
 };
 use lib_core::{define_cli_error, CliError, IOError, Printer};
+use sha2::{Digest as _, Sha256};
 
 use crate::shared_config::config_from_profile;
 
@@ -134,4 +135,20 @@ where
         count, bucket, key_prefix
     ));
     Ok(count)
+}
+
+/// Deterministically derives a unique bucket name.
+pub fn derive_unique_bucket_name(
+    sso_session: &str,
+    account_id: &str,
+    region: &str,
+    prefix: &str,
+    project_id: &str,
+) -> String {
+    // This should be globally unique, so we must take care to incorporate the
+    // company name and account ID.
+    let deterministic_hash = hex::encode(Sha256::digest(
+        format!("{sso_session}.{account_id}.{region}.{project_id}").as_bytes(),
+    ));
+    format!("{prefix}-{}", &deterministic_hash[..32])
 }
