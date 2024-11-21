@@ -44,6 +44,7 @@ pub async fn push_docker_image_to_ecr(
         .map_err(|e| DockerPushError::with_debug(&e))?
     {
         if let Some(status) = chunk.status {
+            write!(handle, "\r\x1b[2K").unwrap();
             write!(handle, "\r{}", status).unwrap();
             handle.flush().unwrap();
         }
