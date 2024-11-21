@@ -45,7 +45,13 @@ pub async fn push_docker_image_to_ecr(
     {
         if let Some(status) = chunk.status {
             write!(handle, "\r\x1b[2K").unwrap();
-            write!(handle, "\r{}", status).unwrap();
+            write!(
+                handle,
+                "\r{}; {}",
+                status,
+                chunk.progress.unwrap_or_default()
+            )
+            .unwrap();
             handle.flush().unwrap();
         }
     }
