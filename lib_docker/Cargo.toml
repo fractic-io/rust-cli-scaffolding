@@ -7,4 +7,6 @@ edition = "2021"
 bollard = "^0.18.1"
 futures-util = "^0.3.31"
 lib_core = { path = "../lib_core" }
+lib_aws = { path = "../lib_aws" }
 tokio = { version = "^1.41.1", features = ["full"] }
+tempfile = "^3.14.0"
