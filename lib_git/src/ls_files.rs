@@ -32,7 +32,7 @@ pub fn find_git_root<P: AsRef<Path>>(discover_path: P) -> Result<PathBuf, CliErr
 
 pub fn list_git_tracked_files<P: AsRef<Path>>(
     repo_discover_path: P,
-    filter_subpath: Option<&str>,
+    filter_subpaths: Option<Vec<&str>>,
     include_submodules: bool,
 ) -> Result<Vec<PathBuf>, CliError> {
     let mut tracked_files = Vec::new();
@@ -42,10 +42,16 @@ pub fn list_git_tracked_files<P: AsRef<Path>>(
         let r = find_git_root(repo_discover_path.as_ref())?;
         fs::canonicalize(&r).map_err(|e| FileCantBeCanonicalized::with_debug(&r.display(), &e))?
     };
-    let filter_subpath = filter_subpath
-        .map(|subpath| {
-            let s = repo_root.join(subpath);
-            fs::canonicalize(&s).map_err(|e| FileCantBeCanonicalized::with_debug(&s.display(), &e))
+    let filter_subpaths = filter_subpaths
+        .map(|subpaths| {
+            subpaths
+                .into_iter()
+                .map(|subpath| {
+                    let p = repo_root.join(subpath.trim_start_matches('/'));
+                    fs::canonicalize(&p)
+                        .map_err(|e| FileCantBeCanonicalized::with_debug(&p.display(), &e))
+                })
+                .collect::<Result<Vec<_>, _>>()
         })
         .transpose()?;
     let repo = Repository::open(&repo_root).map_err(|e| NotAGitRepository::with_debug(&e))?;
@@ -65,8 +71,8 @@ pub fn list_git_tracked_files<P: AsRef<Path>>(
     for entry in statuses.iter() {
         if let Some(path_str) = entry.path() {
             let path = repo_root.join(path_str);
-            let include = match filter_subpath {
-                Some(ref subpath) => path.starts_with(subpath),
+            let include = match filter_subpaths {
+                Some(ref subpaths) => subpaths.iter().any(|s| path.starts_with(s)),
                 None => true,
             };
             if include {
@@ -86,8 +92,8 @@ pub fn list_git_tracked_files<P: AsRef<Path>>(
                 fs::canonicalize(&s)
                     .map_err(|e| FileCantBeCanonicalized::with_debug(&s.display(), &e))?
             };
-            let include = match filter_subpath {
-                Some(ref subpath) => submodule_path.starts_with(subpath),
+            let include = match filter_subpaths {
+                Some(ref subpaths) => subpaths.iter().any(|s| submodule_path.starts_with(s)),
                 None => true,
             };
             if include {
@@ -106,17 +112,17 @@ pub fn list_git_tracked_files<P: AsRef<Path>>(
 pub fn clone_repo_to<P: AsRef<Path>, Q: AsRef<Path>>(
     pr: &Printer,
     repo_discover_path: P,
-    filter_subpath: Option<&str>,
+    filter_subpaths: Option<Vec<&str>>,
     destination: Q,
     include_submodules: bool,
 ) -> Result<(), CliError> {
     let repo_root = find_git_root(repo_discover_path.as_ref())?;
-    pr.info(&match filter_subpath {
-        Some(subpath) => format!(
-            "Cloning repo at {:?} to {:?} (subpath: {:?})...",
+    pr.info(&match filter_subpaths {
+        Some(ref subpaths) => format!(
+            "Cloning repo at {:?} to {:?} (subpaths: {:?})...",
             repo_root,
             destination.as_ref(),
-            subpath
+            subpaths
         ),
         None => format!(
             "Cloning repo at {:?} to {:?}...",
@@ -125,7 +131,7 @@ pub fn clone_repo_to<P: AsRef<Path>, Q: AsRef<Path>>(
         ),
     });
     let tracked_files =
-        list_git_tracked_files(&repo_discover_path, filter_subpath, include_submodules)?;
+        list_git_tracked_files(&repo_discover_path, filter_subpaths, include_submodules)?;
     for file in tracked_files {
         let relative_path = file.strip_prefix(&repo_root).map_err(|e| {
             CriticalError::with_debug(
@@ -153,7 +159,7 @@ pub fn clone_repo_to<P: AsRef<Path>, Q: AsRef<Path>>(
 pub fn with_repo_temporarily_cloned_to<P: AsRef<Path>, Q: AsRef<Path>, F, R>(
     pr: &Printer,
     repo_discover_path: P,
-    filter_subpath: Option<&str>,
+    filter_subpaths: Option<Vec<&str>>,
     destination: Q,
     include_submodules: bool,
     f: F,
@@ -165,7 +171,7 @@ where
     clone_repo_to(
         pr,
         repo_discover_path,
-        filter_subpath,
+        filter_subpaths,
         &destination,
         include_submodules,
     )?;
