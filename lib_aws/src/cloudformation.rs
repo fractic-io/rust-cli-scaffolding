@@ -159,6 +159,7 @@ pub async fn deploy_stack_from_s3(
                 .change_set_name(&changeset_name)
                 .template_url(s3_url)
                 .capabilities(Capability::CapabilityNamedIam)
+                .capabilities(Capability::CapabilityAutoExpand)
                 .include_nested_stacks(true)
                 .set_parameters(Some(parameters))
                 .send()
@@ -229,6 +230,7 @@ pub async fn deploy_stack_from_s3(
                         .stack_name(stack_name)
                         .template_url(s3_url)
                         .capabilities(Capability::CapabilityNamedIam)
+                        .capabilities(Capability::CapabilityAutoExpand)
                         .set_parameters(Some(parameters))
                         .send()
                         .await
@@ -244,6 +246,7 @@ pub async fn deploy_stack_from_s3(
                         .stack_name(stack_name)
                         .template_url(s3_url)
                         .capabilities(Capability::CapabilityNamedIam)
+                        .capabilities(Capability::CapabilityAutoExpand)
                         .set_parameters(Some(parameters))
                         .send()
                         .await
