@@ -1,4 +1,7 @@
-use std::{os::unix::fs::PermissionsExt, path::Path};
+use std::{
+    os::unix::fs::PermissionsExt,
+    path::{Path, PathBuf},
+};
 
 use crate::{CliError, IOError};
 
@@ -77,4 +80,15 @@ where
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
         .map_err(|e| IOError::with_debug(&e))?;
     Ok(())
+}
+
+#[track_caller]
+pub fn ls<P>(path: P) -> Result<Vec<PathBuf>, CliError>
+where
+    P: AsRef<Path>,
+{
+    std::fs::read_dir(path)
+        .map_err(|e| IOError::with_debug(&e))?
+        .map(|entry| entry.map(|e| e.path()).map_err(|e| IOError::with_debug(&e)))
+        .collect()
 }
