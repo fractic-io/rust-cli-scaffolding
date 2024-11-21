@@ -5,6 +5,8 @@ members = [
     "main",
     "lib_aws",
     "lib_core",
+    "lib_docker",
     "lib_flutter",
+    "lib_git",
     "lib_image",
 ]
