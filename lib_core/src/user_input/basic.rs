@@ -1,3 +1,5 @@
+use std::io::Write as _;
+
 use crate::{define_cli_error, CliError, IOError};
 
 define_cli_error!(UserCancelled, "User cancelled operation.");
@@ -18,7 +20,10 @@ pub fn yes_no(prompt: &str) -> Result<bool, CliError> {
 }
 
 pub fn continue_after_enter() -> Result<(), CliError> {
-    println!("Press Enter to continue...");
+    print!("Press Enter to continue...");
+    std::io::stdout()
+        .flush()
+        .map_err(|e| IOError::with_debug(&e))?;
     let mut buffer = String::new();
     std::io::stdin()
         .read_line(&mut buffer)
