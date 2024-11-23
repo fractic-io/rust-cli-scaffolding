@@ -92,3 +92,16 @@ where
         .map(|entry| entry.map(|e| e.path()).map_err(|e| IOError::with_debug(&e)))
         .collect()
 }
+
+#[track_caller]
+pub fn cp_r<S, D>(src: S, dst: D) -> Result<(), CliError>
+where
+    S: AsRef<Path>,
+    D: AsRef<Path>,
+{
+    let mut options = fs_extra::dir::CopyOptions::new();
+    options.overwrite = true;
+    fs_extra::copy_items(&vec![src.as_ref()], dst.as_ref(), &options)
+        .map_err(|e| IOError::with_debug(&e))?;
+    Ok(())
+}
