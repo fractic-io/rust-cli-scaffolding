@@ -119,15 +119,16 @@ pub fn list_git_tracked_files<P: AsRef<Path>>(
     Ok(tracked_files)
 }
 
-fn list_dot_git_at<P: AsRef<Path>>(path: P) -> Result<Vec<PathBuf>, CliError> {
-    if !path.as_ref().exists() {
+fn list_dot_git_at<P: AsRef<Path>>(dir: P) -> Result<Vec<PathBuf>, CliError> {
+    let dot_git = dir.as_ref().join(".git");
+    if !dot_git.exists() {
         Ok(Vec::new())
-    } else if path.as_ref().is_file() {
-        Ok(vec![fs::canonicalize(&path).map_err(|e| {
-            FileCantBeCanonicalized::with_debug(&path.as_ref().display(), &e)
+    } else if dot_git.is_file() {
+        Ok(vec![fs::canonicalize(&dot_git).map_err(|e| {
+            FileCantBeCanonicalized::with_debug(&dot_git.display(), &e)
         })?])
     } else {
-        WalkDir::new(path)
+        WalkDir::new(dot_git)
             .into_iter()
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| CriticalError::with_debug("error walking dir", &e))?
