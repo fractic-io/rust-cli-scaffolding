@@ -1,9 +1,10 @@
 use git2::{Repository, StatusOptions};
-use lib_core::{cp, cp_r, define_cli_error, mkdir_p, rm_rf, CliError, CriticalError, Printer};
+use lib_core::{cp, define_cli_error, mkdir_p, rm_rf, CliError, CriticalError, Printer};
 use std::{
     fs,
     path::{Display, Path, PathBuf},
 };
+use walkdir::WalkDir;
 
 define_cli_error!(NotAGitRepository, "The given path is not a git repository.");
 define_cli_error!(
@@ -34,6 +35,7 @@ pub fn list_git_tracked_files<P: AsRef<Path>>(
     repo_discover_path: P,
     filter_subpaths: Option<Vec<&str>>,
     include_submodules: bool,
+    include_dot_git: bool,
 ) -> Result<Vec<PathBuf>, CliError> {
     let mut tracked_files = Vec::new();
 
@@ -43,6 +45,7 @@ pub fn list_git_tracked_files<P: AsRef<Path>>(
         fs::canonicalize(&r).map_err(|e| FileCantBeCanonicalized::with_debug(&r.display(), &e))?
     };
     let filter_pathbufs = filter_subpaths
+        .as_ref()
         .map(|subpaths| {
             subpaths
                 .into_iter()
@@ -98,22 +101,50 @@ pub fn list_git_tracked_files<P: AsRef<Path>>(
             };
             if include {
                 if let Ok(_sub_repo) = submodule.open() {
-                    // Include submodule .git file (if it's a 'redirect' file).
-                    let submodule_git_link = submodule_path.join(".git");
-                    if submodule_git_link.exists() && submodule_git_link.is_file() {
-                        tracked_files.push(submodule_git_link);
-                    }
-
-                    // Include submodule tracked files.
-                    let submodule_files =
-                        list_git_tracked_files(submodule_path, None, include_submodules)?;
-                    tracked_files.extend(submodule_files);
+                    tracked_files.extend(list_git_tracked_files(
+                        submodule_path,
+                        None,
+                        include_submodules,
+                        include_dot_git,
+                    )?);
                 }
             }
         }
     }
 
+    if include_dot_git && filter_subpaths.as_ref().map_or(true, |s| s.contains(&"/")) {
+        tracked_files.extend(list_dot_git_at(&repo_root)?);
+    }
+
     Ok(tracked_files)
+}
+
+fn list_dot_git_at<P: AsRef<Path>>(path: P) -> Result<Vec<PathBuf>, CliError> {
+    if !path.as_ref().exists() {
+        Ok(Vec::new())
+    } else if path.as_ref().is_file() {
+        Ok(vec![fs::canonicalize(&path).map_err(|e| {
+            FileCantBeCanonicalized::with_debug(&path.as_ref().display(), &e)
+        })?])
+    } else {
+        WalkDir::new(path)
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| CriticalError::with_debug("error walking dir", &e))?
+            .into_iter()
+            .filter_map(|entry| {
+                let path = entry.path();
+                if path.is_file() {
+                    Some(
+                        fs::canonicalize(&path)
+                            .map_err(|e| FileCantBeCanonicalized::with_debug(&path.display(), &e)),
+                    )
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
 }
 
 pub fn clone_repo_to<P: AsRef<Path>, Q: AsRef<Path>>(
@@ -122,6 +153,7 @@ pub fn clone_repo_to<P: AsRef<Path>, Q: AsRef<Path>>(
     filter_subpaths: Option<Vec<&str>>,
     destination: Q,
     include_submodules: bool,
+    include_dot_git: bool,
 ) -> Result<(), CliError> {
     let repo_root = find_git_root(repo_discover_path.as_ref())?;
     pr.info(&match filter_subpaths {
@@ -141,14 +173,12 @@ pub fn clone_repo_to<P: AsRef<Path>, Q: AsRef<Path>>(
     // Prepare destination directory.
     mkdir_p(&destination)?;
 
-    // If we are copying the entire repo, copy the .git folder.
-    if filter_subpaths.as_ref().map_or(true, |s| s.contains(&"/")) {
-        cp_r(&repo_root.join(".git"), &destination)?;
-    }
-
-    // Copy all tracked files.
-    let tracked_files =
-        list_git_tracked_files(&repo_discover_path, filter_subpaths, include_submodules)?;
+    let tracked_files = list_git_tracked_files(
+        &repo_discover_path,
+        filter_subpaths,
+        include_submodules,
+        include_dot_git,
+    )?;
     for file in tracked_files {
         let relative_path = file.strip_prefix(&repo_root).map_err(|e| {
             CriticalError::with_debug(
@@ -180,6 +210,7 @@ pub fn with_repo_temporarily_cloned_to<P: AsRef<Path>, Q: AsRef<Path>, F, R>(
     filter_subpaths: Option<Vec<&str>>,
     destination: Q,
     include_submodules: bool,
+    include_dot_git: bool,
     f: F,
 ) -> Result<R, CliError>
 where
@@ -192,6 +223,7 @@ where
         filter_subpaths,
         &destination,
         include_submodules,
+        include_dot_git,
     )?;
     let result = f(destination.as_ref());
     pr.info("Cleaning up temporary clone...");
