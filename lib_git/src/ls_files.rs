@@ -1,5 +1,5 @@
 use git2::{Repository, StatusOptions};
-use lib_core::{cp, define_cli_error, mkdir_p, rm_rf, CliError, CriticalError, Printer};
+use lib_core::{cp, cp_r, define_cli_error, mkdir_p, rm_rf, CliError, CriticalError, Printer};
 use std::{
     fs,
     path::{Display, Path, PathBuf},
@@ -42,7 +42,7 @@ pub fn list_git_tracked_files<P: AsRef<Path>>(
         let r = find_git_root(repo_discover_path.as_ref())?;
         fs::canonicalize(&r).map_err(|e| FileCantBeCanonicalized::with_debug(&r.display(), &e))?
     };
-    let filter_subpaths = filter_subpaths
+    let filter_pathbufs = filter_subpaths
         .map(|subpaths| {
             subpaths
                 .into_iter()
@@ -71,7 +71,7 @@ pub fn list_git_tracked_files<P: AsRef<Path>>(
     for entry in statuses.iter() {
         if let Some(path_str) = entry.path() {
             let path = repo_root.join(path_str);
-            let include = match filter_subpaths {
+            let include = match filter_pathbufs {
                 Some(ref subpaths) => subpaths.iter().any(|s| path.starts_with(s)),
                 None => true,
             };
@@ -92,12 +92,19 @@ pub fn list_git_tracked_files<P: AsRef<Path>>(
                 fs::canonicalize(&s)
                     .map_err(|e| FileCantBeCanonicalized::with_debug(&s.display(), &e))?
             };
-            let include = match filter_subpaths {
+            let include = match filter_pathbufs {
                 Some(ref subpaths) => subpaths.iter().any(|s| submodule_path.starts_with(s)),
                 None => true,
             };
             if include {
                 if let Ok(_sub_repo) = submodule.open() {
+                    // Include submodule .git file (if it's a 'redirect' file).
+                    let submodule_git_link = submodule_path.join(".git");
+                    if submodule_git_link.exists() && submodule_git_link.is_file() {
+                        tracked_files.push(submodule_git_link);
+                    }
+
+                    // Include submodule tracked files.
                     let submodule_files =
                         list_git_tracked_files(submodule_path, None, include_submodules)?;
                     tracked_files.extend(submodule_files);
@@ -130,6 +137,16 @@ pub fn clone_repo_to<P: AsRef<Path>, Q: AsRef<Path>>(
             destination.as_ref()
         ),
     });
+
+    // Prepare destination directory.
+    mkdir_p(&destination)?;
+
+    // If we are copying the entire repo, copy the .git folder.
+    if filter_subpaths.as_ref().map_or(true, |s| s.contains(&"/")) {
+        cp_r(&repo_root.join(".git"), &destination)?;
+    }
+
+    // Copy all tracked files.
     let tracked_files =
         list_git_tracked_files(&repo_discover_path, filter_subpaths, include_submodules)?;
     for file in tracked_files {
@@ -153,6 +170,7 @@ pub fn clone_repo_to<P: AsRef<Path>, Q: AsRef<Path>>(
             ));
         }
     }
+
     Ok(())
 }
 
