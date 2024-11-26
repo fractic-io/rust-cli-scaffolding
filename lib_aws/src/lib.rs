@@ -1,8 +1,10 @@
 mod account;
+mod autoscaling;
 mod cargo_lambda;
 mod cloudformation;
 mod cognito;
 mod ecr;
+mod ecs;
 mod identity;
 mod s3;
 mod sam;
@@ -11,10 +13,12 @@ mod ses;
 mod shared_config;
 
 pub use account::*;
+pub use autoscaling::*;
 pub use cargo_lambda::*;
 pub use cloudformation::*;
 pub use cognito::*;
 pub use ecr::*;
+pub use ecs::*;
 pub use identity::*;
 pub use s3::*;
 pub use sam::*;
