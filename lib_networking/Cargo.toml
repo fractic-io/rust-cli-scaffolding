@@ -1,0 +1,10 @@
+[package]
+name = "lib_networking"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+hickory-client = { version = "^0.24.1", default-features = false }
+lib_core = { path = "../lib_core" }
+openssh = "^0.11.3"
+reqwest = "0.12.9"

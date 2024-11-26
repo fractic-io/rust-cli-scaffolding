@@ -9,4 +9,5 @@ members = [
     "lib_flutter",
     "lib_git",
     "lib_image",
+    "lib_networking",
 ]
