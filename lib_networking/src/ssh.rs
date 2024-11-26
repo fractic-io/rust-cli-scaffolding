@@ -1,4 +1,4 @@
-use lib_core::{define_cli_error, CliError, Executor, IOMode, InvalidUTF8};
+use lib_core::{define_cli_error, CliError, CriticalError, Executor, IOMode, InvalidUTF8, Printer};
 use openssh::{ForwardType, KnownHosts, SessionBuilder};
 use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
@@ -86,20 +86,44 @@ pub async fn forward_port(
 }
 
 pub async fn ssh_cache_identity(
+    pr: &Printer,
     ex: &Executor,
     identity_file: &PathBuf,
     ttl: Duration,
 ) -> Result<(), CliError> {
-    ex.execute(
-        "ssh-add",
-        &[
-            "-t",
-            &ttl.as_secs().to_string(),
-            &identity_file.display().to_string(),
-        ],
+    let agent_init = ex.execute("ssh-agent", &["-s"], None, IOMode::Silent)?;
+    ex.execute("sh", &["-c", &agent_init], None, IOMode::Silent)?;
+
+    let existing_cached_identities = ex.execute("ssh-add", &["-l"], None, IOMode::Silent)?;
+    let search_query = ex.execute(
+        "ssh-keygen",
+        &["-lf", &identity_file.display().to_string()],
         None,
-        IOMode::Attach,
+        IOMode::Silent,
     )?;
+    let search_query_sha_component = search_query.split_whitespace().nth(1).ok_or_else(|| {
+        CriticalError::new(&format!(
+            "could not find SHA component of ssh-keygen spec: '{}'.",
+            search_query
+        ))
+    })?;
+
+    if !existing_cached_identities.contains(search_query_sha_component) {
+        pr.info(&format!(
+            "Caching SSH identity file '{}'...",
+            identity_file.display()
+        ));
+        ex.execute(
+            "ssh-add",
+            &[
+                "-t",
+                &ttl.as_secs().to_string(),
+                &identity_file.display().to_string(),
+            ],
+            None,
+            IOMode::Attach,
+        )?;
+    }
     Ok(())
 }
 
