@@ -39,7 +39,12 @@ impl From<PortForward> for ForwardType {
     }
 }
 
-pub fn wait_until_ssh_available(address: &str, port: u16) -> Result<(), CliError> {
+pub fn wait_until_ssh_available(pr: &Printer, address: &str, port: u16) -> Result<(), CliError> {
+    pr.info(&format!(
+        "Waiting for '{}:{}' to become available...",
+        address, port
+    ));
+
     let address_with_port = format!("{}:{}", address, port);
     let timeout_duration = Duration::from_secs(5 * 60); // 5 minutes
     let start_time = Instant::now();
@@ -59,11 +64,23 @@ pub fn wait_until_ssh_available(address: &str, port: u16) -> Result<(), CliError
 }
 
 pub async fn forward_port(
+    pr: &Printer,
     address: &str,
     ssh_port: u16,
     direction: PortForward,
     forward_port: u16,
 ) -> Result<(), CliError> {
+    match direction {
+        PortForward::Local => pr.info(&format!(
+            "Forwarding port {} to '{}'...",
+            forward_port, address
+        )),
+        PortForward::Remote => pr.info(&format!(
+            "Forwarding remote port {} from '{}'...",
+            forward_port, address
+        )),
+    }
+
     let session = SessionBuilder::default()
         .connect(format!("{}:{}", address, ssh_port))
         .await

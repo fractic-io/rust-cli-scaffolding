@@ -1,11 +1,13 @@
 use std::str::FromStr as _;
 
 use hickory_client::{
-    client::{Client, SyncClient},
+    client::{AsyncClient, ClientHandle as _},
+    proto::iocompat::AsyncIoTokioAsStd,
     rr::{DNSClass, Name, RData, RecordType},
-    udp::UdpClientConnection,
+    tcp::TcpClientStream,
 };
 use lib_core::{define_cli_error, CliError};
+use tokio::net::TcpStream;
 
 define_cli_error!(
     DnsConnectionError,
@@ -25,20 +27,23 @@ define_cli_error!(
 
 const NAME_SERVER: &'static str = "8.8.8.8:53";
 
-pub fn dns_query_a_record(address: &str) -> Result<String, CliError> {
-    let conn =
-        UdpClientConnection::new(NAME_SERVER.parse().map_err(|e| {
+pub async fn dns_query_a_record(address: &str) -> Result<String, CliError> {
+    let (stream, sender) =
+        TcpClientStream::<AsyncIoTokioAsStd<TcpStream>>::new(NAME_SERVER.parse().map_err(|e| {
             DnsConnectionError::with_debug("could not parse name server address", &e)
-        })?)
+        })?);
+    let (mut client, bg) = AsyncClient::new(stream, sender, None)
+        .await
         .map_err(|e| DnsConnectionError::with_debug("could not establish connection", &e))?;
-    let client = SyncClient::new(conn);
+    tokio::spawn(bg);
     client
         .query(
-            &Name::from_str(address)
+            Name::from_str(address)
                 .map_err(|e| InvalidDnsRequest::with_debug("could not parse address", &e))?,
             DNSClass::IN,
             RecordType::A,
         )
+        .await
         .map_err(|e| DnsConnectionError::with_debug("could not send query", &e))
         .and_then(|response| {
             response
@@ -55,20 +60,23 @@ pub fn dns_query_a_record(address: &str) -> Result<String, CliError> {
         })
 }
 
-pub fn dns_query_cname_record(address: &str) -> Result<String, CliError> {
-    let conn =
-        UdpClientConnection::new(NAME_SERVER.parse().map_err(|e| {
+pub async fn dns_query_cname_record(address: &str) -> Result<String, CliError> {
+    let (stream, sender) =
+        TcpClientStream::<AsyncIoTokioAsStd<TcpStream>>::new(NAME_SERVER.parse().map_err(|e| {
             DnsConnectionError::with_debug("could not parse name server address", &e)
-        })?)
+        })?);
+    let (mut client, bg) = AsyncClient::new(stream, sender, None)
+        .await
         .map_err(|e| DnsConnectionError::with_debug("could not establish connection", &e))?;
-    let client = SyncClient::new(conn);
+    tokio::spawn(bg);
     client
         .query(
-            &Name::from_str(address)
+            Name::from_str(address)
                 .map_err(|e| InvalidDnsRequest::with_debug("could not parse address", &e))?,
             DNSClass::IN,
             RecordType::CNAME,
         )
+        .await
         .map_err(|e| DnsConnectionError::with_debug("could not send query", &e))
         .and_then(|response| {
             response

@@ -11,6 +11,7 @@ lib_docker = { path = "../lib_docker", optional = true }
 lib_flutter = { path = "../lib_flutter", optional = true }
 lib_git = { path = "../lib_git", optional = true }
 lib_image = { path = "../lib_image", optional = true }
+lib_networking = { path = "../lib_networking", optional = true }
 
 [features]
 default = []
@@ -19,3 +20,4 @@ docker = ["lib_docker"]
 flutter = ["lib_flutter"]
 git = ["lib_git"]
 image = ["lib_image"]
+networking = ["lib_networking"]

@@ -14,3 +14,6 @@ pub use lib_git::*;
 
 #[cfg(feature = "docker")]
 pub use lib_docker::*;
+
+#[cfg(feature = "networking")]
+pub use lib_networking::*;
