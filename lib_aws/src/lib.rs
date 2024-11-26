@@ -11,6 +11,7 @@ mod sam;
 mod secrets;
 mod ses;
 mod shared_config;
+mod ssm;
 
 pub use account::*;
 pub use autoscaling::*;
@@ -24,3 +25,4 @@ pub use s3::*;
 pub use sam::*;
 pub use secrets::*;
 pub use ses::*;
+pub use ssm::*;
