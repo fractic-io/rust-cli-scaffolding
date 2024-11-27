@@ -28,6 +28,10 @@ define_cli_error!(
 const NAME_SERVER: &'static str = "8.8.8.8:53";
 
 pub async fn dns_query_a_record(address: &str) -> Result<String, CliError> {
+    if address == "localhost" {
+        return Ok("0.0.0.0".to_string());
+    }
+
     let (stream, sender) =
         TcpClientStream::<AsyncIoTokioAsStd<TcpStream>>::new(NAME_SERVER.parse().map_err(|e| {
             DnsConnectionError::with_debug("could not parse name server address", &e)

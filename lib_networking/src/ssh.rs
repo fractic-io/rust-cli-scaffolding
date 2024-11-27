@@ -1,9 +1,10 @@
 use lib_core::{define_cli_error, CliError, CriticalError, Executor, IOMode, InvalidUTF8, Printer};
-use openssh::{ForwardType, KnownHosts, SessionBuilder};
+use openssh::{ForwardType, KnownHosts, Session, SessionBuilder};
 use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
-use std::thread;
 use std::time::{Duration, Instant};
+
+use crate::dns_query_a_record;
 
 define_cli_error!(
     InvalidSshRequest,
@@ -39,50 +40,81 @@ impl From<PortForward> for ForwardType {
     }
 }
 
-pub fn wait_until_ssh_available(pr: &Printer, address: &str, port: u16) -> Result<(), CliError> {
+pub struct PortForwardHandle {
+    _session: Session,
+}
+
+/// Returns the IP address the hostname resolves to once it becomes available.
+pub async fn wait_until_ssh_available(
+    pr: &Printer,
+    hostname: &str,
+    port: u16,
+) -> Result<String, CliError> {
     pr.info(&format!(
         "Waiting for '{}:{}' to become available...",
-        address, port
+        hostname, port
     ));
 
-    let address_with_port = format!("{}:{}", address, port);
     let timeout_duration = Duration::from_secs(5 * 60); // 5 minutes
     let start_time = Instant::now();
 
-    let socket_addr: SocketAddr = address_with_port
-        .parse()
-        .map_err(|e| InvalidSshRequest::with_debug("could not parse address", &e))?;
-
     while start_time.elapsed() < timeout_duration {
+        let ip_addr = if is_ip_address(hostname) {
+            hostname.to_string()
+        } else {
+            match dns_query_a_record(hostname).await {
+                Ok(ip) => ip,
+                Err(e) => {
+                    pr.warn(&format!(
+                        "WARNING: Failed to resolve hostname '{}'. {}",
+                        hostname,
+                        e.message()
+                    ));
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    continue;
+                }
+            }
+        };
+
+        let address_with_port = format!("{}:{}", ip_addr, port);
+        let socket_addr: SocketAddr = address_with_port
+            .parse()
+            .map_err(|e| InvalidSshRequest::with_debug("could not parse address", &e))?;
         if TcpStream::connect_timeout(&socket_addr, Duration::from_secs(3)).is_ok() {
-            return Ok(());
+            return Ok(ip_addr);
         }
-        thread::sleep(Duration::from_secs(1));
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
     }
 
     Err(SshWaitTimeout::new(timeout_duration.as_secs()))
 }
 
+/// The port forwarding remains active until the returned PortForwardHandle is dropped.
 pub async fn forward_port(
     pr: &Printer,
-    address: &str,
+    user: &str,
+    hostname: &str,
     ssh_port: u16,
+    identity_file: &PathBuf,
     direction: PortForward,
     forward_port: u16,
-) -> Result<(), CliError> {
+) -> Result<PortForwardHandle, CliError> {
     match direction {
         PortForward::Local => pr.info(&format!(
-            "Forwarding port {} to '{}'...",
-            forward_port, address
+            "Forwarding '{}:{}' to localhost...",
+            hostname, forward_port
         )),
         PortForward::Remote => pr.info(&format!(
-            "Forwarding remote port {} from '{}'...",
-            forward_port, address
+            "Forwarding localhost:{} to '{}'...",
+            forward_port, hostname
         )),
     }
 
     let session = SessionBuilder::default()
-        .connect(format!("{}:{}", address, ssh_port))
+        .known_hosts_check(KnownHosts::Add)
+        .keyfile(identity_file)
+        .connect(format!("ssh://{}@{}:{}", user, hostname, ssh_port))
         .await
         .map_err(|e| SshConnectionError::with_debug(&e))?;
 
@@ -99,10 +131,12 @@ pub async fn forward_port(
             ),
         )
         .await
-        .map_err(|e| SshPortForwardError::with_debug(forward_port, &e))
+        .map_err(|e| SshPortForwardError::with_debug(forward_port, &e))?;
+
+    Ok(PortForwardHandle { _session: session })
 }
 
-pub async fn ssh_cache_identity(
+pub fn ssh_cache_identity(
     pr: &Printer,
     ex: &Executor,
     identity_file: &PathBuf,
@@ -111,7 +145,11 @@ pub async fn ssh_cache_identity(
     let agent_init = ex.execute("ssh-agent", &["-s"], None, IOMode::Silent)?;
     ex.execute("sh", &["-c", &agent_init], None, IOMode::Silent)?;
 
-    let existing_cached_identities = ex.execute("ssh-add", &["-l"], None, IOMode::Silent)?;
+    let existing_cached_identities = ex
+        .execute("ssh-add", &["-l"], None, IOMode::Silent)
+        // NOTE: 'ssh-add -l' returns error code 1 if the agent has no
+        // identities, so just treat an error as empty.
+        .unwrap_or_default();
     let search_query = ex.execute(
         "ssh-keygen",
         &["-lf", &identity_file.display().to_string()],
@@ -146,7 +184,8 @@ pub async fn ssh_cache_identity(
 
 /// Identity must be cached before calling this function.
 pub async fn ssh_exec_command(
-    address: &str,
+    user: &str,
+    hostname: &str,
     port: u16,
     identity_file: &PathBuf,
     program: &str,
@@ -155,7 +194,7 @@ pub async fn ssh_exec_command(
     let session = SessionBuilder::default()
         .known_hosts_check(KnownHosts::Add)
         .keyfile(identity_file)
-        .connect(format!("{}:{}", address, port))
+        .connect(format!("ssh://{}@{}:{}", user, hostname, port))
         .await
         .map_err(|e| SshConnectionError::with_debug(&e))?;
 
@@ -169,15 +208,17 @@ pub async fn ssh_exec_command(
     String::from_utf8(out.stdout).map_err(|e| InvalidUTF8::with_debug(&e))
 }
 
-pub async fn ssh_attach(
+pub fn ssh_attach(
     ex: &Executor,
-    address: &str,
+    user: &str,
+    hostname: &str,
     port: u16,
     identity_file: &PathBuf,
     command: Option<&str>,
 ) -> Result<(), CliError> {
     let port = port.to_string();
     let identity_file = identity_file.display().to_string();
+    let address = format!("{}@{}", user, hostname);
 
     let mut args = vec![
         "-p",
@@ -186,7 +227,7 @@ pub async fn ssh_attach(
         &identity_file,
         "-o",
         "StrictHostKeyChecking=accept-new",
-        address,
+        &address,
     ];
     if let Some(command) = command {
         args.push("-t");
@@ -195,4 +236,8 @@ pub async fn ssh_attach(
 
     ex.execute("ssh", &args, None, IOMode::Attach)?;
     Ok(())
+}
+
+fn is_ip_address(address: &str) -> bool {
+    address.parse::<std::net::IpAddr>().is_ok()
 }
