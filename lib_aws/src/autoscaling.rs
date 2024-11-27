@@ -9,20 +9,24 @@ pub async fn set_auto_scaling_group_desired_size(
     pr: &Printer,
     profile: &str,
     region: &str,
-    auto_scaling_group: &str,
+    auto_scaling_group_name: &str,
     desired_size: i32,
 ) -> Result<(), CliError> {
     pr.info(&format!(
         "Setting desired size of auto scaling group '{}' to {}...",
-        auto_scaling_group, desired_size
+        auto_scaling_group_name, desired_size
     ));
     let client = Client::new(&config_from_profile(profile, region).await);
     client
         .update_auto_scaling_group()
-        .auto_scaling_group_name(auto_scaling_group)
+        .auto_scaling_group_name(auto_scaling_group_name)
         .desired_capacity(desired_size)
         .send()
         .await
         .map_err(|e| Ec2Error::with_debug(&e))?;
     Ok(())
+}
+
+pub fn get_auto_scaling_group_name_from_arn(arn: &str) -> &str {
+    arn.split('/').last().unwrap_or_default()
 }
