@@ -4,7 +4,7 @@ use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use crate::dns_query_a_record;
+use crate::{close_open_sockets_on_port, dns_query_a_record};
 
 define_cli_error!(
     InvalidSshRequest,
@@ -99,6 +99,7 @@ pub async fn forward_port(
     identity_file: &PathBuf,
     direction: PortForward,
     forward_port: u16,
+    force_close_existing: bool,
 ) -> Result<PortForwardHandle, CliError> {
     match direction {
         PortForward::Local => pr.info(&format!(
@@ -109,6 +110,10 @@ pub async fn forward_port(
             "Forwarding localhost:{} to '{}'...",
             forward_port, hostname
         )),
+    }
+
+    if force_close_existing {
+        close_open_sockets_on_port(pr, forward_port)?;
     }
 
     let session = SessionBuilder::default()
