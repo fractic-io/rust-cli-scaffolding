@@ -43,6 +43,12 @@ pub struct PortForwardHandle {
     _session: Session,
 }
 
+#[derive(Debug, Default)]
+pub struct SshAttachOptions<'a> {
+    pub command: Option<&'a str>,
+    pub inactivity_timeout: Option<Duration>,
+}
+
 /// Returns the IP address the hostname resolves to once it becomes available.
 pub async fn wait_until_ssh_available(
     pr: &mut Printer,
@@ -211,13 +217,24 @@ pub fn ssh_attach(
     hostname: &str,
     port: u16,
     identity_file: &PathBuf,
-    command: Option<&str>,
+    options: Option<SshAttachOptions>,
 ) -> Result<(), CliError> {
+    let options = options.unwrap_or_default();
+
     let port = port.to_string();
     let identity_file = identity_file.display().to_string();
     let address = format!("{}@{}", user, hostname);
 
-    let mut args = vec![
+    let command = match (options.inactivity_timeout, options.command) {
+        (Some(timeout), Some(command)) => {
+            format!("timeout {}s {}", timeout.as_secs(), command)
+        }
+        (Some(timeout), None) => format!("export TMOUT={}; exec $SHELL -l", timeout.as_secs()),
+        (None, Some(command)) => command.to_string(),
+        (None, None) => "exec $SHELL -l".to_string(),
+    };
+
+    let args = vec![
         "-p",
         &port,
         "-i",
@@ -225,11 +242,9 @@ pub fn ssh_attach(
         "-o",
         "StrictHostKeyChecking=accept-new",
         &address,
+        "-t",
+        &command,
     ];
-    if let Some(command) = command {
-        args.push("-t");
-        args.push(command);
-    }
 
     ex.execute("ssh", &args, None, IOMode::Attach)?;
     Ok(())
