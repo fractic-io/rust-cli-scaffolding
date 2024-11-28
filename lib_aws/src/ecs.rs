@@ -35,8 +35,8 @@ pub async fn run_task(
     task_definition: &str,
 ) -> Result<(), CliError> {
     pr.info(&format!(
-        "Running task '{}' on cluster '{}'...",
-        task_definition, cluster
+        "Running task '{}' on cluster '{}' ({})...",
+        task_definition, cluster, region
     ));
     let client = Client::new(&config_from_profile(profile, region).await);
     client
