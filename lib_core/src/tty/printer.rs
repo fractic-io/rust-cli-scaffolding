@@ -1,7 +1,18 @@
-use colored::Colorize as _;
+use std::{
+    future::Future,
+    io::{StdoutLock, Write as _},
+    pin::Pin,
+};
+
+use colored::{ColoredString, Colorize as _};
 
 #[derive(Debug, Clone)]
 pub struct Printer;
+
+#[derive(Debug)]
+pub struct StatusBarPrinter {
+    out: StdoutLock<'static>,
+}
 
 impl Printer {
     pub fn new() -> Self {
@@ -34,6 +45,17 @@ impl Printer {
         println!("{}", "-".repeat(80).dimmed());
     }
 
+    pub fn with_status_bar<'a, T, F, Fut>(
+        &'a mut self,
+        f: F,
+    ) -> Pin<Box<dyn Future<Output = T> + 'a>>
+    where
+        F: FnOnce(StatusBarPrinter) -> Fut + 'a,
+        Fut: Future<Output = T> + 'a,
+    {
+        Box::pin(async move { f(StatusBarPrinter::new()).await })
+    }
+
     pub fn info(&self, message: &str) {
         println!("{}", message.dimmed());
     }
@@ -52,5 +74,46 @@ impl Printer {
 
     pub fn success(&self, message: &str) {
         println!("{}", message.green());
+    }
+}
+
+impl StatusBarPrinter {
+    fn new() -> Self {
+        StatusBarPrinter {
+            out: std::io::stdout().lock(),
+        }
+    }
+
+    fn write(&mut self, status: ColoredString) {
+        write!(self.out, "\r\x1b[2K").unwrap();
+        write!(self.out, "\r{}", status).unwrap();
+        self.out.flush().unwrap();
+    }
+
+    pub fn info(&mut self, status: &str) {
+        self.write(status.dimmed());
+    }
+
+    pub fn important(&mut self, status: &str) {
+        self.write(status.bright_blue());
+    }
+
+    pub fn warn(&mut self, status: &str) {
+        self.write(status.yellow());
+    }
+
+    pub fn error(&mut self, status: &str) {
+        self.write(status.red());
+    }
+
+    fn close(&mut self) {
+        write!(self.out, "\n").unwrap();
+        self.out.flush().unwrap();
+    }
+}
+
+impl Drop for StatusBarPrinter {
+    fn drop(&mut self) {
+        self.close();
     }
 }

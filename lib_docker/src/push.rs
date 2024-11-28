@@ -1,5 +1,3 @@
-use std::io::{self, Write};
-
 use bollard::{auth::DockerCredentials, image::PushImageOptions, Docker};
 use futures_util::TryStreamExt as _;
 use lib_aws::EcrCredentials;
@@ -10,7 +8,7 @@ use crate::DockerConnectionError;
 define_cli_error!(DockerPushError, "Failed to push Docker image.");
 
 pub async fn push_docker_image_to_ecr(
-    pr: &Printer,
+    pr: &mut Printer,
     ecr_repo: &str,
     tag: &str,
     credentials: EcrCredentials,
@@ -36,27 +34,23 @@ pub async fn push_docker_image_to_ecr(
         Docker::connect_with_local_defaults().map_err(|e| DockerConnectionError::with_debug(&e))?;
     let mut push_stream = docker.push_image(ecr_repo, Some(push_opts), Some(creds));
 
-    let stdout = io::stdout();
-    let mut handle = stdout.lock();
-    while let Some(chunk) = push_stream
-        .try_next()
-        .await
-        .map_err(|e| DockerPushError::with_debug(&e))?
-    {
-        if let Some(status) = chunk.status {
-            write!(handle, "\r\x1b[2K").unwrap();
-            write!(
-                handle,
-                "\r{}; {}",
-                status,
-                chunk.progress.unwrap_or_default()
-            )
-            .unwrap();
-            handle.flush().unwrap();
+    pr.with_status_bar(|mut status_bar| async move {
+        while let Some(chunk) = push_stream
+            .try_next()
+            .await
+            .map_err(|e| DockerPushError::with_debug(&e))?
+        {
+            if let Some(status) = chunk.status {
+                status_bar.info(&format!(
+                    "{}; {}",
+                    status,
+                    chunk.progress.unwrap_or_default()
+                ));
+            }
         }
-    }
-    write!(handle, "\n").unwrap();
-    handle.flush().unwrap();
+        Ok::<(), CliError>(())
+    })
+    .await?;
 
     pr.info("Image pushed successfully.");
 
