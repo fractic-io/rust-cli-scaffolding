@@ -55,7 +55,7 @@ pub async fn wait_until_ssh_available(
     let ip = wait_until_socket_open(pr, hostname, port).await?;
 
     // Next, wait for SSH server to be available.
-    let timeout_duration = Duration::from_secs(2 * 60); // 2 minutes
+    let timeout_duration = Duration::from_secs(5 * 60); // 5 minutes
     let start_time = Instant::now();
     pr.with_status_bar(|mut status_bar| async move {
         let mut last_error = None;
