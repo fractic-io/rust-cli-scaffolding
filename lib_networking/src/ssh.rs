@@ -1,10 +1,9 @@
 use lib_core::{define_cli_error, CliError, CriticalError, Executor, IOMode, InvalidUTF8, Printer};
 use openssh::{ForwardType, KnownHosts, Session, SessionBuilder};
-use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use crate::{close_open_sockets_on_port, dns_query_a_record};
+use crate::{close_open_sockets_on_port, wait_until_socket_open};
 
 define_cli_error!(
     InvalidSshRequest,
@@ -46,48 +45,41 @@ pub struct PortForwardHandle {
 
 /// Returns the IP address the hostname resolves to once it becomes available.
 pub async fn wait_until_ssh_available(
-    pr: &Printer,
+    pr: &mut Printer,
+    user: &str,
     hostname: &str,
     port: u16,
+    identity_file: &PathBuf,
 ) -> Result<String, CliError> {
-    pr.info(&format!(
-        "Waiting for '{}:{}' to become available...",
-        hostname, port
-    ));
+    // First, wait for socket to be open.
+    let ip = wait_until_socket_open(pr, hostname, port).await?;
 
-    let timeout_duration = Duration::from_secs(5 * 60); // 5 minutes
+    // Next, wait for SSH server to be available.
+    let timeout_duration = Duration::from_secs(2 * 60); // 2 minutes
     let start_time = Instant::now();
-
-    while start_time.elapsed() < timeout_duration {
-        let ip_addr = if is_ip_address(hostname) {
-            hostname.to_string()
-        } else {
-            match dns_query_a_record(hostname).await {
-                Ok(ip) => ip,
+    pr.with_status_bar(|mut status_bar| async move {
+        let mut last_error = None;
+        while start_time.elapsed() < timeout_duration {
+            match ssh_exec_command(user, hostname, port, identity_file, "echo", &["Connected."])
+                .await
+            {
+                Ok(_) => {
+                    status_bar.important("Connected.");
+                    return Ok(ip);
+                }
                 Err(e) => {
-                    pr.warn(&format!(
-                        "WARNING: Failed to resolve hostname '{}'. {}",
-                        hostname,
-                        e.message()
-                    ));
-                    tokio::time::sleep(Duration::from_secs(5)).await;
-                    continue;
+                    status_bar.info(&format!("{}; {}", e.message(), "Retrying..."));
+                    last_error = Some(e);
+                    tokio::time::sleep(Duration::from_secs(2)).await;
                 }
             }
-        };
-
-        let address_with_port = format!("{}:{}", ip_addr, port);
-        let socket_addr: SocketAddr = address_with_port
-            .parse()
-            .map_err(|e| InvalidSshRequest::with_debug("could not parse address", &e))?;
-        if TcpStream::connect_timeout(&socket_addr, Duration::from_secs(3)).is_ok() {
-            return Ok(ip_addr);
         }
-
-        tokio::time::sleep(Duration::from_secs(1)).await;
-    }
-
-    Err(SshWaitTimeout::new(timeout_duration.as_secs()))
+        Err(SshWaitTimeout::with_debug(
+            timeout_duration.as_secs(),
+            &last_error,
+        ))
+    })
+    .await
 }
 
 /// The port forwarding remains active until the returned PortForwardHandle is dropped.
@@ -241,8 +233,4 @@ pub fn ssh_attach(
 
     ex.execute("ssh", &args, None, IOMode::Attach)?;
     Ok(())
-}
-
-fn is_ip_address(address: &str) -> bool {
-    address.parse::<std::net::IpAddr>().is_ok()
 }
