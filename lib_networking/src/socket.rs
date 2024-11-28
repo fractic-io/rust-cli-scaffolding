@@ -84,35 +84,48 @@ pub async fn wait_until_socket_open(
     let start_time = Instant::now();
 
     while start_time.elapsed() < timeout_duration {
-        let ip_addr = if is_ip_address(hostname) {
-            hostname.to_string()
-        } else {
-            match dns_query_a_record(hostname).await {
-                Ok(ip) => ip,
-                Err(e) => {
-                    pr.warn(&format!(
-                        "WARNING: Failed to resolve hostname '{}'. {}",
-                        hostname,
-                        e.message()
-                    ));
-                    tokio::time::sleep(Duration::from_secs(5)).await;
-                    continue;
-                }
-            }
-        };
-
-        let address_with_port = format!("{}:{}", ip_addr, port);
-        let socket_addr: SocketAddr = address_with_port
-            .parse()
-            .map_err(|e| InvalidSocketAddress::with_debug(&address_with_port, &e))?;
-        if TcpStream::connect_timeout(&socket_addr, Duration::from_secs(3)).is_ok() {
-            return Ok(ip_addr);
+        if let Some(ip) = socket_status(pr, hostname, port).await? {
+            return Ok(ip);
         }
-
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        tokio::time::sleep(Duration::from_secs(2)).await;
     }
 
     Err(SocketWaitTimeout::new(timeout_duration.as_secs()))
+}
+
+/// Returns the IP address the hostname resolves to if the socket is open.
+pub async fn socket_status(
+    pr: &Printer,
+    hostname: &str,
+    port: u16,
+) -> Result<Option<String>, CliError> {
+    let ip_addr = if is_ip_address(hostname) {
+        hostname.to_string()
+    } else {
+        match dns_query_a_record(hostname).await {
+            Ok(ip) => ip,
+            Err(e) => {
+                pr.warn(&format!(
+                    "WARNING: Failed to resolve hostname '{}'. {}",
+                    hostname,
+                    e.message()
+                ));
+                return Ok(None);
+            }
+        }
+    };
+
+    let address_with_port = format!("{}:{}", ip_addr, port);
+    let socket_addr: SocketAddr = address_with_port
+        .parse()
+        .map_err(|e| InvalidSocketAddress::with_debug(&address_with_port, &e))?;
+    Ok(
+        if TcpStream::connect_timeout(&socket_addr, Duration::from_secs(1)).is_ok() {
+            Some(ip_addr)
+        } else {
+            None
+        },
+    )
 }
 
 fn is_ip_address(address: &str) -> bool {
