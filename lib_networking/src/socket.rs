@@ -80,7 +80,7 @@ pub async fn wait_until_socket_open(
         hostname, port
     ));
 
-    let timeout_duration = Duration::from_secs(5 * 60); // 5 minutes
+    let timeout_duration = Duration::from_secs(10 * 60); // 10 minutes
     let start_time = Instant::now();
 
     while start_time.elapsed() < timeout_duration {
