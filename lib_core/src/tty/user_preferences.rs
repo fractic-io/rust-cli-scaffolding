@@ -8,6 +8,8 @@ use std::{
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 
+use crate::{mkdir_p, CliError};
+
 #[derive(Debug)]
 pub struct UserPreferences {
     preferences: PreferencesFileContent,
@@ -60,7 +62,7 @@ impl UserPreferences {
             .and_then(|value| serde_yaml::from_value(value.clone()).ok())
     }
 
-    pub fn set_pref<T: Serialize>(&mut self, key: &str, value: Option<T>) {
+    pub fn set_pref<T: Serialize>(&mut self, key: &str, value: Option<T>) -> Result<(), CliError> {
         if let Some(value) = value {
             self.preferences
                 .scripts
@@ -80,11 +82,16 @@ impl UserPreferences {
         }
 
         if let Ok(yaml) = serde_yaml::to_string(&self.preferences) {
+            if let Some(parent) = self.preferences_path.parent() {
+                mkdir_p(parent)?;
+            }
             let _ = fs::write(&self.preferences_path, yaml);
         }
+
+        Ok(())
     }
 
-    pub fn ask_pref(&mut self, key: &str, prompt: &str) -> Option<String> {
+    pub fn ask_pref(&mut self, key: &str, prompt: &str) -> Result<Option<String>, CliError> {
         let default_value = self.get_pref::<String>(key);
 
         if let Some(ref default_value) = default_value {
@@ -102,10 +109,10 @@ impl UserPreferences {
         };
 
         if input.is_none() && default_value.is_some() {
-            return default_value;
+            Ok(default_value)
         } else {
-            self.set_pref(key, input.clone());
-            input
+            self.set_pref(key, input.clone())?;
+            Ok(input)
         }
     }
 
