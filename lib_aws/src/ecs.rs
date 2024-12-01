@@ -1,4 +1,7 @@
-use aws_sdk_ecs::Client;
+use aws_sdk_ecs::{
+    types::{AssignPublicIp, AwsVpcConfiguration, LaunchType, NetworkConfiguration},
+    Client,
+};
 use lib_core::{define_cli_error, CliError, Printer};
 
 use crate::{
@@ -9,6 +12,28 @@ use crate::{
 define_cli_error!(EcsError, "Error running AWS ECS command.");
 define_cli_error!(EcsCapacityProviderNotFound, "ECS capacity provider '{name}' not found.", { name: &str });
 define_cli_error!(EcsCapacityProviderNoAutoScalingGroup, "ECS capacity provider '{name}' does not have an auto scaling group.", { name: &str });
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EcsTaskLaunchType {
+    Ec2,
+    Fargate,
+}
+
+#[derive(Debug, Clone)]
+pub struct EcsTaskNetworkConfiguration {
+    pub subnet_id: String,
+    pub security_group_id: String,
+    pub assign_public_ip: bool,
+}
+
+impl Into<LaunchType> for EcsTaskLaunchType {
+    fn into(self) -> LaunchType {
+        match self {
+            EcsTaskLaunchType::Ec2 => LaunchType::Ec2,
+            EcsTaskLaunchType::Fargate => LaunchType::Fargate,
+        }
+    }
+}
 
 pub async fn cluster_has_running_task_for_family(
     profile: &str,
@@ -33,6 +58,8 @@ pub async fn run_task(
     region: &str,
     cluster: &str,
     task_definition: &str,
+    launch_type: Option<EcsTaskLaunchType>,
+    network_configuration: Option<EcsTaskNetworkConfiguration>,
 ) -> Result<(), CliError> {
     pr.info(&format!(
         "Running task '{}' on cluster '{}' ({})...",
@@ -43,6 +70,28 @@ pub async fn run_task(
         .run_task()
         .cluster(cluster)
         .task_definition(task_definition)
+        .set_launch_type(launch_type.map(Into::into))
+        .set_network_configuration(
+            network_configuration
+                .map(|nc| {
+                    Ok::<_, CliError>(
+                        NetworkConfiguration::builder()
+                            .awsvpc_configuration(
+                                AwsVpcConfiguration::builder()
+                                    .subnets(nc.subnet_id)
+                                    .security_groups(nc.security_group_id)
+                                    .assign_public_ip(match nc.assign_public_ip {
+                                        true => AssignPublicIp::Enabled,
+                                        false => AssignPublicIp::Disabled,
+                                    })
+                                    .build()
+                                    .map_err(|e| EcsError::with_debug(&e))?,
+                            )
+                            .build(),
+                    )
+                })
+                .transpose()?,
+        )
         .send()
         .await
         .map_err(|e| EcsError::with_debug(&e))?;
@@ -59,9 +108,20 @@ pub async fn run_task_if_not_running(
     region: &str,
     cluster: &str,
     task_definition: &str,
+    launch_type: Option<EcsTaskLaunchType>,
+    network_configuration: Option<EcsTaskNetworkConfiguration>,
 ) -> Result<bool, CliError> {
     if !cluster_has_running_task_for_family(profile, region, cluster, task_definition).await? {
-        run_task(pr, profile, region, cluster, task_definition).await?;
+        run_task(
+            pr,
+            profile,
+            region,
+            cluster,
+            task_definition,
+            launch_type,
+            network_configuration,
+        )
+        .await?;
         Ok(true)
     } else {
         Ok(false)
