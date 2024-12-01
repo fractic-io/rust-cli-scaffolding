@@ -21,9 +21,9 @@ pub enum EcsTaskLaunchType {
 
 #[derive(Debug, Clone)]
 pub struct EcsTaskNetworkConfiguration {
-    pub subnet_id: String,
-    pub security_group_id: String,
-    pub assign_public_ip: bool,
+    pub subnet_id: Option<String>,
+    pub security_group_id: Option<String>,
+    pub assign_public_ip: Option<bool>,
 }
 
 impl Into<LaunchType> for EcsTaskLaunchType {
@@ -78,11 +78,12 @@ pub async fn run_task(
                         NetworkConfiguration::builder()
                             .awsvpc_configuration(
                                 AwsVpcConfiguration::builder()
-                                    .subnets(nc.subnet_id)
-                                    .security_groups(nc.security_group_id)
-                                    .assign_public_ip(match nc.assign_public_ip {
-                                        true => AssignPublicIp::Enabled,
-                                        false => AssignPublicIp::Disabled,
+                                    .set_subnets(nc.subnet_id.map(|s| vec![s]))
+                                    .set_security_groups(nc.security_group_id.map(|s| vec![s]))
+                                    .set_assign_public_ip(match nc.assign_public_ip {
+                                        Some(true) => Some(AssignPublicIp::Enabled),
+                                        Some(false) => Some(AssignPublicIp::Disabled),
+                                        None => None,
                                     })
                                     .build()
                                     .map_err(|e| EcsError::with_debug(&e))?,
