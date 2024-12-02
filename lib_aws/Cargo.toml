@@ -23,5 +23,6 @@ lib_core = { path = "../lib_core" }
 serde = "^1.0.214"
 serde_json = "^1.0.132"
 sha2 = "^0.10.8"
+tempfile = "^3.14.0"
 textwrap = "^0.16.1"
 walkdir = "^2.5.0"
