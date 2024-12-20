@@ -55,10 +55,16 @@ pub fn rm_rf<P>(path: P) -> Result<(), CliError>
 where
     P: AsRef<Path>,
 {
-    if !path.as_ref().exists() {
+    // NOTE: To check if file exists, we also should check is_symlink, to catch
+    // broken symlinks.
+    if !path.as_ref().exists() && !path.as_ref().is_symlink() {
         return Ok(());
     }
-    std::fs::remove_dir_all(path).map_err(|e| IOError::with_debug(&e))?;
+    if path.as_ref().is_dir() {
+        std::fs::remove_dir_all(path).map_err(|e| IOError::with_debug(&e))?;
+    } else {
+        rm(path)?;
+    }
     Ok(())
 }
 
