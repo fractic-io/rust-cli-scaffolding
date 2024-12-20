@@ -8,7 +8,7 @@ use lib_core::{CliError, ExecuteOptions, Executor, IOMode, Printer};
 pub async fn sam_build(pr: &Printer, ex: &Executor, project_dir: &Path) -> Result<(), CliError> {
     pr.info("Building with SAM...");
     if let Ok(ref workdir) = std::env::var("CARGO_LAMBDA_BUILD_DIR") {
-        pr.info(&format!("Using build dir: '{}'", workdir));
+        pr.info(&format!("Using build dir: '{}'.", workdir));
         let sam_build_dir = PathBuf::from(workdir).join("build");
         let cargo_target_dir = PathBuf::from(workdir).join("target");
         ex.execute_with_options(
