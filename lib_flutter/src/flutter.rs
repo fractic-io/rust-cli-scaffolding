@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fs,
     path::{Path, PathBuf},
 };
 
@@ -10,6 +11,11 @@ define_cli_error!(
     "The build type {build_type:?} doesn't support installation.",
     { build_type: &BuildFor }
 );
+define_cli_error!(
+    FlutterUnexpectedBuildOutputPath,
+    "Expected build to be at '{expected}', but it could not be found.",
+    { expected: &str }
+);
 
 #[derive(Debug, Clone)]
 pub enum BuildFor {
@@ -17,6 +23,13 @@ pub enum BuildFor {
     AndroidPublish,
     Ios,
     Web { base_href: String },
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum BuildType {
+    Debug,
+    Profile,
+    Release,
 }
 
 pub fn run_flutter_integration_test(
@@ -55,25 +68,31 @@ pub fn run_flutter_integration_test(
 }
 
 /// Returns the path to the generated output.
-pub fn flutter_build_release(
+pub fn flutter_build(
     pr: &Printer,
     ex: &Executor,
     dir: &Path,
     os: BuildFor,
+    build_type: BuildType,
     flavor: Option<&str>,
 ) -> Result<PathBuf, CliError> {
     let mut args = vec!["build"];
     let flavor_str = flavor.map_or("".to_string(), |f| format!("-{f}"));
+    let output_path_suffix = match build_type {
+        BuildType::Debug => "debug",
+        BuildType::Profile => "profile",
+        BuildType::Release => "release",
+    };
     let output_path = match os {
         BuildFor::Android => {
             pr.info("Building Android apk...");
             args.push("apk");
-            format!("build/app/outputs/flutter-apk/app${flavor_str}-release.apk")
+            format!("build/app/outputs/flutter-apk/app{flavor_str}-{output_path_suffix}.apk")
         }
         BuildFor::AndroidPublish => {
             pr.info("Building Android app bundle...");
             args.push("appbundle");
-            format!("build/app/outputs/bundle/release/app${flavor_str}-release.aab")
+            format!("build/app/outputs/bundle/release/app{flavor_str}-{output_path_suffix}.aab")
         }
         BuildFor::Ios => {
             pr.info("Building iOS app...");
@@ -86,12 +105,17 @@ pub fn flutter_build_release(
             "build/web".to_string()
         }
     };
-    args.push("--release");
+    match build_type {
+        BuildType::Debug => args.push("--debug"),
+        BuildType::Profile => args.push("--profile"),
+        BuildType::Release => args.push("--release"),
+    }
     if let Some(flavor) = flavor {
         args.extend(&["--flavor", flavor]);
     }
     ex.execute("flutter", &args, Some(dir), IOMode::StreamOutput)?;
-    Ok(dir.join(output_path))
+    fs::canonicalize(dir.join(&output_path))
+        .map_err(|e| FlutterUnexpectedBuildOutputPath::with_debug(&output_path, &e))
 }
 
 pub fn flutter_install(
@@ -99,14 +123,23 @@ pub fn flutter_install(
     ex: &Executor,
     dir: &Path,
     os: BuildFor,
+    build_type: BuildType,
     flavor: Option<&str>,
 ) -> Result<(), CliError> {
-    let output_path = flutter_build_release(pr, ex, dir, os.clone(), flavor)?;
+    let output_path = flutter_build(pr, ex, dir, os.clone(), build_type, flavor)?;
 
-    pr.info("Installing...");
+    pr.info(&format!(
+        "Installing '{}'...",
+        output_path.to_string_lossy()
+    ));
     let mut install_args = vec!["install"];
     if let Some(flavor) = flavor {
         install_args.extend(&["--flavor", flavor]);
+    }
+    match build_type {
+        BuildType::Debug => install_args.push("--debug"),
+        BuildType::Profile => install_args.push("--profile"),
+        BuildType::Release => install_args.push("--release"),
     }
     match os {
         BuildFor::Android => {
