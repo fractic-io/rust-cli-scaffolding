@@ -310,7 +310,7 @@ pub fn scp<'a>(
     user: &str,
     hostname: &str,
     connect_options: Option<SshConnectOptions<'a>>,
-    source: &str,
+    source: &PathBuf,
     destination: &str,
 ) -> Result<(), CliError> {
     let connect_opt = connect_options.unwrap_or_default();
@@ -329,7 +329,11 @@ pub fn scp<'a>(
     let connect_timeout_opt = format!("ConnectTimeout={}", connect_timeout.as_secs());
     let output_location = format!("{}@{}:{}", user, hostname, destination);
 
-    pr.info(&format!("Copying '{}' to '{}'...", source, output_location));
+    pr.info(&format!(
+        "Copying '{}' to '{}'...",
+        source.display(),
+        output_location
+    ));
 
     let args = vec![
         "-P",
@@ -342,7 +346,12 @@ pub fn scp<'a>(
         &known_hosts_opt,
         "-o",
         &connect_timeout_opt,
-        source,
+        source.to_str().ok_or_else(|| {
+            CriticalError::new(&format!(
+                "failed to convert path '{}' to string.",
+                source.display()
+            ))
+        })?,
         &output_location,
     ];
 
@@ -356,7 +365,7 @@ pub fn scp_dir<'a>(
     user: &str,
     hostname: &str,
     connect_options: Option<SshConnectOptions<'a>>,
-    source: &str,
+    source: &PathBuf,
     destination: &str,
 ) -> Result<(), CliError> {
     for entry in walkdir::WalkDir::new(source) {
@@ -368,7 +377,7 @@ pub fn scp_dir<'a>(
                     &format!(
                         "unexpectedly, {} is not a child of {}.",
                         path.display(),
-                        source
+                        source.display(),
                     ),
                     &e,
                 )
@@ -380,7 +389,7 @@ pub fn scp_dir<'a>(
                 user,
                 hostname,
                 connect_options,
-                path.to_str().unwrap(),
+                &path.to_path_buf(),
                 &destination_path,
             )?;
         }
