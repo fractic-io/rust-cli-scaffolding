@@ -58,6 +58,14 @@ impl<T> AnnotatableResult for Result<T, CliError> {
 // Definining custom CLI errors.
 // --------------------------------------------------
 
+struct CliErrorContext;
+
+impl CliErrorContext {
+    fn capture() -> String {
+        fractic_server_error::ServerErrorContext::Full.capture()
+    }
+}
+
 #[macro_export]
 macro_rules! define_cli_error {
     ($name:ident, $msg:expr) => {
@@ -77,7 +85,7 @@ macro_rules! define_cli_error {
             #[track_caller]
             pub fn new($($arg: $argtype),*) -> $crate::CliError {
                 Box::new($name {
-                    context: fractic_server_error::ServerErrorContext::Full.capture(),
+                    context: $crate::CliErrorContext::capture(),
                     message: format!($msg, $($arg = $arg),*),
                     debug: None,
                     annotations: Vec::new(),
@@ -91,7 +99,7 @@ macro_rules! define_cli_error {
                 debug: &D,
             ) -> $crate::CliError where D: std::fmt::Debug {
                 Box::new($name {
-                    context: fractic_server_error::ServerErrorContext::Full.capture(),
+                    context: $crate::CliErrorContext::capture(),
                     message: format!($msg, $($arg = $arg),*),
                     debug: Some(format!("{:#?}", debug)),
                     annotations: Vec::new(),
