@@ -1,4 +1,5 @@
 use clap::ValueEnum;
+use fractic_core::impl_deterministic_display_from_serde;
 use serde::{Deserialize, Serialize};
 use strum_macros::EnumIter;
 
@@ -11,8 +12,4 @@ pub enum DeploymentEnv {
     Production,
 }
 
-impl std::fmt::Display for DeploymentEnv {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        serde::Serialize::serialize(self, f)
-    }
-}
+impl_deterministic_display_from_serde!(DeploymentEnv);
