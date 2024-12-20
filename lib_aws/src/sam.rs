@@ -1,55 +1,35 @@
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-};
+use std::{collections::HashMap, path::Path};
 
-use lib_core::{ln_s, rm_rf, CliError, ExecuteOptions, Executor, IOMode, Printer};
+use lib_core::{ln_s, mkdir_p, rm_rf, CliError, ExecuteOptions, Executor, IOMode, Printer};
 
 pub async fn sam_build(pr: &Printer, ex: &Executor, project_dir: &Path) -> Result<(), CliError> {
     pr.info("Building with SAM...");
-    if let Ok(ref workdir) = std::env::var("CARGO_LAMBDA_BUILD_DIR") {
-        // Allow overriding the build directory with an environment variable,
-        // which sets both the SAM output directory, as well as the Cargo target
-        // directory.
-        pr.info(&format!("Using custom build dir: '{}'.", workdir));
-        let sam_build_dir = PathBuf::from(workdir).join("build");
-        let cargo_target_dir = PathBuf::from(workdir).join("target");
+
+    let env = if let Ok(target_dir) = std::env::var("CARGO_LAMBDA_TARGET_DIR") {
+        pr.info(&format!("Using custom target dir: '{}'.", target_dir));
 
         // It seems SAM isn't fully compatible with a custom CARGO_TARGET_DIR,
         // so we need to symlink the expected '/target' directory to our custom
         // location.
         let expected_target_dir = project_dir.join("code").join("target");
         rm_rf(&expected_target_dir)?;
-        ln_s(&cargo_target_dir, &expected_target_dir)?;
-
-        ex.execute_with_options(
-            "sam",
-            &[
-                "build",
-                "--build-dir",
-                sam_build_dir.to_string_lossy().as_ref(),
-            ],
-            IOMode::Attach,
-            ExecuteOptions {
-                dir: Some(project_dir),
-                env: Some(vec![(
-                    "CARGO_TARGET_DIR".to_string(),
-                    cargo_target_dir.to_string_lossy().to_string(),
-                )]),
-                ..Default::default()
-            },
-        )?;
+        mkdir_p(&target_dir)?;
+        ln_s(&target_dir, &expected_target_dir)?;
+        Some(vec![("CARGO_TARGET_DIR".to_string(), target_dir)])
     } else {
-        ex.execute_with_options(
-            "sam",
-            &["build"],
-            IOMode::Attach,
-            ExecuteOptions {
-                dir: Some(project_dir),
-                ..Default::default()
-            },
-        )?;
-    }
+        None
+    };
+
+    ex.execute_with_options(
+        "sam",
+        &["build"],
+        IOMode::Attach,
+        ExecuteOptions {
+            dir: Some(project_dir),
+            env,
+            ..Default::default()
+        },
+    )?;
     Ok(())
 }
 
