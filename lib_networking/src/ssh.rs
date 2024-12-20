@@ -49,6 +49,7 @@ pub struct SshConnectOptions<'a> {
     pub port: Option<u16>,
     pub identity_file: Option<&'a PathBuf>,
     pub known_hosts_file: Option<&'a PathBuf>,
+    pub connect_timeout: Option<Duration>,
 }
 
 #[derive(Debug, Default)]
@@ -128,6 +129,9 @@ pub async fn forward_port<'a>(
         || "~/.ssh/known_hosts".to_string(),
         |p| p.display().to_string(),
     );
+    let connect_timeout = connect_opt
+        .connect_timeout
+        .unwrap_or(Duration::from_secs(10));
 
     if force_close_existing {
         close_open_sockets_on_port(pr, forward_port)?;
@@ -137,6 +141,7 @@ pub async fn forward_port<'a>(
         .known_hosts_check(KnownHosts::Add)
         .keyfile(identity_file)
         .user_known_hosts_file(known_hosts_file)
+        .connect_timeout(connect_timeout)
         .connect(format!("ssh://{}@{}:{}", user, hostname, ssh_port))
         .await
         .map_err(|e| SshConnectionError::with_debug(&e))?;
@@ -222,11 +227,15 @@ pub async fn ssh_exec_command<'a>(
         || "~/.ssh/known_hosts".to_string(),
         |p| p.display().to_string(),
     );
+    let connect_timeout = connect_opt
+        .connect_timeout
+        .unwrap_or(Duration::from_secs(10));
 
     let session = SessionBuilder::default()
         .known_hosts_check(KnownHosts::Add)
         .keyfile(identity_file)
         .user_known_hosts_file(known_hosts_file)
+        .connect_timeout(connect_timeout)
         .connect(format!("ssh://{}@{}:{}", user, hostname, port))
         .await
         .map_err(|e| SshConnectionError::with_debug(&e))?;
@@ -259,7 +268,11 @@ pub fn ssh_attach<'a>(
         || "~/.ssh/known_hosts".to_string(),
         |p| p.display().to_string(),
     );
+    let connect_timeout = connect_opt
+        .connect_timeout
+        .unwrap_or(Duration::from_secs(10));
     let known_hosts_opt = format!("UserKnownHostsFile={}", known_hosts_file);
+    let connect_timeout_opt = format!("ConnectTimeout={}", connect_timeout.as_secs());
     let address = format!("{}@{}", user, hostname);
 
     let command = match (attach_opt.inactivity_timeout, attach_opt.command) {
@@ -280,6 +293,8 @@ pub fn ssh_attach<'a>(
         "StrictHostKeyChecking=accept-new",
         "-o",
         &known_hosts_opt,
+        "-o",
+        &connect_timeout_opt,
         &address,
         "-t",
         &command,
