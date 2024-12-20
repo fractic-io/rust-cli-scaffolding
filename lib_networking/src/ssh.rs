@@ -391,25 +391,8 @@ pub fn scp_dir<'a>(
         .into_iter()
         .filter_map(|entry| entry.ok())
         .filter(|entry| entry.file_type().is_file())
-        .map(|entry| {
-            Ok::<_, CliError>(
-                entry
-                    .path()
-                    .strip_prefix(dir)
-                    .map_err(|e| {
-                        CriticalError::with_debug(
-                            &format!(
-                                "unexpectedly, {} is not a child of {}.",
-                                entry.path().display(),
-                                dir.display(),
-                            ),
-                            &e,
-                        )
-                    })?
-                    .to_path_buf(),
-            )
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+        .map(|entry| entry.path().to_path_buf())
+        .collect::<Vec<_>>();
     scp(
         pr,
         ex,
