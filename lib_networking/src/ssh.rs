@@ -170,18 +170,17 @@ pub fn ssh_cache_identity(
     identity_file: &PathBuf,
     ttl: Duration,
 ) -> Result<(), CliError> {
-    let agent_init = ex.execute("ssh-agent", &["-s"], None, IOMode::Silent)?;
-    ex.execute("sh", &["-c", &agent_init], None, IOMode::Silent)?;
+    let agent_init = ex.execute("ssh-agent", &["-s"], IOMode::Silent)?;
+    ex.execute("sh", &["-c", &agent_init], IOMode::Silent)?;
 
     let existing_cached_identities = ex
-        .execute("ssh-add", &["-l"], None, IOMode::Silent)
+        .execute("ssh-add", &["-l"], IOMode::Silent)
         // NOTE: 'ssh-add -l' returns error code 1 if the agent has no
         // identities, so just treat an error as empty.
         .unwrap_or_default();
     let search_query = ex.execute(
         "ssh-keygen",
         &["-lf", &identity_file.display().to_string()],
-        None,
         IOMode::Silent,
     )?;
     let search_query_sha_component = search_query.split_whitespace().nth(1).ok_or_else(|| {
@@ -203,7 +202,6 @@ pub fn ssh_cache_identity(
                 &ttl.as_secs().to_string(),
                 &identity_file.display().to_string(),
             ],
-            None,
             IOMode::Attach,
         )?;
     }
@@ -300,6 +298,6 @@ pub fn ssh_attach<'a>(
         &command,
     ];
 
-    ex.execute("ssh", &args, None, IOMode::Attach)?;
+    ex.execute("ssh", &args, IOMode::Attach)?;
     Ok(())
 }

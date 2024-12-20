@@ -1,25 +1,44 @@
-use std::{collections::HashMap, path::Path};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use lib_core::{CliError, ExecuteOptions, Executor, IOMode, Printer};
 
 pub async fn sam_build(pr: &Printer, ex: &Executor, project_dir: &Path) -> Result<(), CliError> {
     pr.info("Building with SAM...");
-    let mut args = vec!["build"];
-    let build_dir_override = std::env::var("CARGO_LAMBDA_BUILD_DIR");
-    if let Ok(ref build_dir) = build_dir_override {
-        pr.info(&format!("Using build dir: '{}'", build_dir));
-        args.push("--build-dir");
-        args.push(build_dir);
+    if let Ok(ref workdir) = std::env::var("CARGO_LAMBDA_BUILD_DIR") {
+        pr.info(&format!("Using build dir: '{}'", workdir));
+        let sam_build_dir = PathBuf::from(workdir).join("build");
+        let cargo_target_dir = PathBuf::from(workdir).join("target");
+        ex.execute_with_options(
+            "sam",
+            &[
+                "build",
+                "--build-dir",
+                sam_build_dir.to_string_lossy().as_ref(),
+            ],
+            IOMode::Attach,
+            ExecuteOptions {
+                dir: Some(project_dir),
+                env: Some(vec![(
+                    "CARGO_TARGET_DIR".to_string(),
+                    cargo_target_dir.to_string_lossy().to_string(),
+                )]),
+                ..Default::default()
+            },
+        )?;
+    } else {
+        ex.execute_with_options(
+            "sam",
+            &["build"],
+            IOMode::Attach,
+            ExecuteOptions {
+                dir: Some(project_dir),
+                ..Default::default()
+            },
+        )?;
     }
-    ex.execute_with_options(
-        "sam",
-        &args,
-        IOMode::Attach,
-        ExecuteOptions {
-            dir: Some(project_dir),
-            ..Default::default()
-        },
-    )?;
     Ok(())
 }
 

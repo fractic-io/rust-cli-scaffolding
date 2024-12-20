@@ -6,8 +6,8 @@ use bollard::{
 };
 use futures_util::TryStreamExt as _;
 use lib_core::{
-    build_tar_bundle, define_cli_error, CliError, CriticalError, Executor, IOMode, InvalidUTF8,
-    Printer,
+    build_tar_bundle, define_cli_error, CliError, CriticalError, ExecuteOptions, Executor, IOMode,
+    InvalidUTF8, Printer,
 };
 use tempfile::tempdir;
 use tokio::{fs::File, io::AsyncReadExt as _};
@@ -106,11 +106,14 @@ pub fn build_docker_image_with_command_line<P: AsRef<Path>>(
         image_name,
         dockerfile_path.display()
     ));
-    ex.execute(
+    ex.execute_with_options(
         "docker",
         &["build", "-t", image_name, "."],
-        Some(build_dir.as_ref()),
         IOMode::Attach,
+        ExecuteOptions {
+            dir: Some(build_dir.as_ref()),
+            ..Default::default()
+        },
     )
     .map_err(|e| DockerBuildError::with_debug(&e))?;
     pr.info("Image built successfully.");
