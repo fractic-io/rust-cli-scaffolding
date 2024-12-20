@@ -21,8 +21,15 @@ where
     S: AsRef<Path>,
     D: AsRef<Path>,
 {
-    std::fs::copy(&src, dst).map_err(|e| IOError::with_debug(&e))?;
-    std::fs::remove_file(src).map_err(|e| IOError::with_debug(&e))?;
+    // Use fs_extra to support moving between different filesystems (not
+    // supported by std::fs::rename).
+    if src.as_ref().is_dir() {
+        fs_extra::dir::move_dir(src, dst, &fs_extra::dir::CopyOptions::new())
+            .map_err(|e| IOError::with_debug(&e))?;
+    } else {
+        fs_extra::file::move_file(src, dst, &fs_extra::file::CopyOptions::new())
+            .map_err(|e| IOError::with_debug(&e))?;
+    }
     Ok(())
 }
 
