@@ -1,8 +1,5 @@
-use std::env;
-
 use lib_core::{
-    define_cli_error, deterministic_number_from_string, CliError, CriticalError, Executor, IOMode,
-    Printer,
+    define_cli_error, deterministic_number_from_string, CliError, Executor, IOMode, Printer,
 };
 
 define_cli_error!(
