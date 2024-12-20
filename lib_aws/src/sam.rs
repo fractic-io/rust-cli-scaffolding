@@ -27,6 +27,18 @@ pub async fn sam_build(
 
     if debug {
         env.push(("SAM_BUILD_MODE".to_string(), "debug".to_string()));
+        // Since AWS imposes a limit of 250MB for lambda zip files, we need to
+        // restrict the amount of debug info included in the binary (otherwise
+        // the size can really add up). Using 'line-tables-only' should be
+        // sufficient to still generate useful backtraces.
+        env.push((
+            "CARGO_PROFILE_DEV_DEBUG".to_string(),
+            "line-tables-only".to_string(),
+        ));
+        // It's also possible to directly set the optimization level, but in
+        // experimentation this didn't make much of a difference, or actually
+        // made the binaries larger.
+        // env.push(("CARGO_PROFILE_DEV_OPT_LEVEL".to_string(), "s".to_string()));
     }
 
     ex.execute_with_options(
