@@ -5,4 +5,4 @@ edition = "2021"
 
 [dependencies]
 lib_core = { path = "../lib_core" }
-magick_rust = { git = "https://github.com/nlfiedler/magick-rust" }
+magick_rust = { git = "https://github.com/nlfiedler/magick-rust", rev = "dfd8df0dd102348c23b33bfc946a9d70b5db25bf" }

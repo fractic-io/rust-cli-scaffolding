@@ -1,7 +1,7 @@
 extern crate magick_rust;
 use lib_core::{define_cli_error, CliError, CriticalError, IOError, Printer};
 use magick_rust::{
-    bindings::{DrawRoundRectangle, MagickBooleanType_MagickTrue},
+    bindings::{DrawRoundRectangle, MagickBooleanType},
     magick_wand_genesis, CompositeOperator, DrawingWand, FilterType, GravityType, MagickWand,
     PixelWand,
 };
@@ -327,7 +327,7 @@ fn add_text(
 
     let mut drawing_wand = DrawingWand::new();
     drawing_wand.set_font(font).into_cli_res()?;
-    drawing_wand.set_text_antialias(MagickBooleanType_MagickTrue);
+    drawing_wand.set_text_antialias(MagickBooleanType::MagickTrue);
     drawing_wand.set_font_size(font_size);
     drawing_wand.set_fill_color(&color);
     drawing_wand.set_gravity(match align {
@@ -412,7 +412,7 @@ fn get_text_width(font: &str, text: &str, size: f64) -> Result<f64, CliError> {
 
     let mut drawing_wand = DrawingWand::new();
     drawing_wand.set_font(font).into_cli_res()?;
-    drawing_wand.set_text_antialias(MagickBooleanType_MagickTrue);
+    drawing_wand.set_text_antialias(MagickBooleanType::MagickTrue);
     drawing_wand.set_font_size(size);
     drawing_wand.set_fill_color(&white());
     drawing_wand.set_gravity(GravityType::West);
