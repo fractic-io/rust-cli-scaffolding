@@ -60,24 +60,17 @@ pub fn start_android_emulator(
     let port = port_number_from_avd_id(avd_id);
     let adb_id = format!("emulator-{}", port);
 
-    // NOTE: This executable needs to be $ANDROID_HOME/emulator/emulator, not
-    // $ANDROID_HOME/tools/emulator. This should be the default in a modern
-    // setup, especially when using Nix.
-    ex.execute_background(
-        "emulator",
-        &[
-            "-no-snapshot",
-            "-wipe-data",
-            "-no-window",
-            "-no-audio",
-            "-port",
-            &port.to_string(),
-            "-avd",
-            avd_id,
-            "-delay-adb",
-        ],
-        None,
-    )?;
+    // NOTES:
+    //   - This executable needs to be $ANDROID_HOME/emulator/emulator, not
+    //   $ANDROID_HOME/tools/emulator. This should be the default in a modern
+    //   setup, especially when using Nix.
+    //   - Errors are by default not output to stderr, so they are not displayed
+    //   by execute_background. So we redirect with grep.
+    let cmd = format!(
+        "emulator -no-snapshot -wipe-data -no-window -no-audio -port {} -avd {} -delay-adb 2>&1 | tee >(grep 'ERROR' >&2)",
+        port, avd_id
+    );
+    ex.execute_background("emulator", &[&cmd], None)?;
 
     // Wait for the emulator to start.
     pr.info("Waiting for device to boot...");
