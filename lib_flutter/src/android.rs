@@ -64,11 +64,10 @@ pub fn start_android_emulator(
     let adb_id = format!("emulator-{}", port);
 
     // NOTE: This executable needs to be $ANDROID_HOME/emulator/emulator, not
-    // $ANDROID_HOME/tools/emulator.
-    let android_home = env::var("ANDROID_HOME")
-        .map_err(|_| CriticalError::new("the ANDROID_HOME environment variable is not set"))?;
+    // $ANDROID_HOME/tools/emulator. This should be the default in a modern
+    // setup, especially when using Nix.
     ex.execute_background(
-        &format!("{}/emulator/emulator", android_home),
+        &format!("emulator", android_home),
         &[
             "-no-snapshot",
             "-wipe-data",
