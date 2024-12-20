@@ -16,17 +16,17 @@ pub struct Tty {
 }
 
 impl Tty {
-    pub fn new(preferences_path: PathBuf, script_name: &'static str) -> Self {
+    pub fn new(preferences_path: PathBuf, script_name: &'static str) -> Result<Self, CliError> {
         let printer = Printer::new();
-        let user_preferences = UserPreferences::new(preferences_path, script_name);
+        let user_preferences = UserPreferences::new(preferences_path, script_name)?;
         let executor = Executor::new();
 
-        Self {
+        Ok(Self {
             start_time: std::time::Instant::now(),
             printer,
             user_preferences,
             executor,
-        }
+        })
     }
 
     pub fn subcommand_separator(&self, subcommand: &str) {

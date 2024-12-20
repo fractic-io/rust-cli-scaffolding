@@ -8,7 +8,9 @@ use std::{
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 
-use crate::{mkdir_p, CliError};
+use crate::{define_cli_error, mkdir_p, CliError};
+
+define_cli_error!(InvalidUserPreferencesFile, "Invalid user preferences file.");
 
 #[derive(Debug)]
 pub struct UserPreferences {
@@ -26,7 +28,7 @@ struct PreferencesFileContent {
 }
 
 impl UserPreferences {
-    pub fn new(preferences_path: PathBuf, script_name: &'static str) -> Self {
+    pub fn new(preferences_path: PathBuf, script_name: &'static str) -> Result<Self, CliError> {
         let expanded_path = if preferences_path.to_string_lossy().starts_with('~') {
             let path_str = preferences_path.to_string_lossy().to_string();
             let expanded =
@@ -35,22 +37,36 @@ impl UserPreferences {
         } else {
             preferences_path
         };
-        let preferences = Self::get_preferences(&expanded_path).unwrap_or_default();
+        let (preferences, path_after_redirects_resolved) = Self::get_preferences(expanded_path)?;
 
-        UserPreferences {
-            preferences,
-            preferences_path: expanded_path,
+        Ok(UserPreferences {
+            preferences: preferences.unwrap_or_default(),
+            preferences_path: path_after_redirects_resolved,
             script_name,
-        }
+        })
     }
 
-    fn get_preferences(path: &PathBuf) -> Option<PreferencesFileContent> {
+    fn get_preferences(
+        path: PathBuf,
+    ) -> Result<(Option<PreferencesFileContent>, PathBuf), CliError> {
         if path.exists() {
-            fs::read_to_string(&path)
-                .map(|content| serde_yaml::from_str(&content).unwrap_or_default())
-                .ok()
+            let content = fs::read_to_string(&path)
+                .map_err(|e| InvalidUserPreferencesFile::with_debug(&e))?;
+            if content.starts_with("redirect: ") {
+                Self::get_preferences(PathBuf::from(
+                    content.trim_start_matches("redirect: ").trim_end(),
+                ))
+            } else {
+                Ok((
+                    Some(
+                        serde_yaml::from_str(&content)
+                            .map_err(|e| InvalidUserPreferencesFile::with_debug(&e))?,
+                    ),
+                    path,
+                ))
+            }
         } else {
-            None
+            Ok((None, path))
         }
     }
 
