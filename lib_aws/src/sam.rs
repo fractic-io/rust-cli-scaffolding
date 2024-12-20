@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use lib_core::{ln_s, CliError, ExecuteOptions, Executor, IOMode, Printer};
+use lib_core::{ln_s, rm_rf, CliError, ExecuteOptions, Executor, IOMode, Printer};
 
 pub async fn sam_build(pr: &Printer, ex: &Executor, project_dir: &Path) -> Result<(), CliError> {
     pr.info("Building with SAM...");
@@ -18,7 +18,9 @@ pub async fn sam_build(pr: &Printer, ex: &Executor, project_dir: &Path) -> Resul
         // It seems SAM isn't fully compatible with a custom CARGO_TARGET_DIR,
         // so we need to symlink the expected '/target' directory to our custom
         // location.
-        ln_s(&cargo_target_dir, project_dir.join("target"))?;
+        let expected_target_dir = project_dir.join("code").join("target");
+        rm_rf(&expected_target_dir)?;
+        ln_s(&cargo_target_dir, &expected_target_dir)?;
 
         ex.execute_with_options(
             "sam",
