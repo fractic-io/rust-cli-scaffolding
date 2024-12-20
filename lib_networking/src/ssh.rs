@@ -1,6 +1,4 @@
-use lib_core::{
-    define_cli_error, CliError, CriticalError, Executor, IOError, IOMode, InvalidUTF8, Printer,
-};
+use lib_core::{define_cli_error, CliError, CriticalError, Executor, IOMode, InvalidUTF8, Printer};
 use openssh::{ForwardType, KnownHosts, Session, SessionBuilder};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -310,7 +308,7 @@ pub fn scp<'a>(
     user: &str,
     hostname: &str,
     connect_options: Option<SshConnectOptions<'a>>,
-    source: &PathBuf,
+    files: Vec<&PathBuf>,
     destination: &str,
 ) -> Result<(), CliError> {
     let connect_opt = connect_options.unwrap_or_default();
@@ -327,15 +325,41 @@ pub fn scp<'a>(
         .unwrap_or(Duration::from_secs(10));
     let known_hosts_opt = format!("UserKnownHostsFile={}", known_hosts_file);
     let connect_timeout_opt = format!("ConnectTimeout={}", connect_timeout.as_secs());
-    let output_location = format!("{}@{}:{}", user, hostname, destination);
 
-    pr.info(&format!(
-        "Copying '{}' to '{}'...",
-        source.display(),
-        output_location
-    ));
+    let scp_sources = files
+        .iter()
+        .map(|f| {
+            f.to_str().ok_or_else(|| {
+                CriticalError::new(&format!(
+                    "failed to convert path '{}' to string.",
+                    f.display()
+                ))
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let scp_dest = format!("{}@{}:{}", user, hostname, destination);
 
-    let args = vec![
+    match scp_sources.len() {
+        0 => {
+            pr.warn("Skipping scp command (no files to copy)...");
+            return Ok(());
+        }
+        1 => {
+            pr.info(&format!(
+                "Copying '{}' to '{}'...",
+                scp_sources[0], scp_dest
+            ));
+        }
+        _ => {
+            pr.info(&format!(
+                "Copying {} files to '{}'...",
+                scp_sources.len(),
+                scp_dest
+            ));
+        }
+    }
+
+    let mut args = vec![
         "-P",
         &port,
         "-i",
@@ -346,14 +370,9 @@ pub fn scp<'a>(
         &known_hosts_opt,
         "-o",
         &connect_timeout_opt,
-        source.to_str().ok_or_else(|| {
-            CriticalError::new(&format!(
-                "failed to convert path '{}' to string.",
-                source.display()
-            ))
-        })?,
-        &output_location,
     ];
+    args.extend(scp_sources);
+    args.push(&scp_dest);
 
     ex.execute("scp", &args, IOMode::Silent)?;
     Ok(())
@@ -365,34 +384,39 @@ pub fn scp_dir<'a>(
     user: &str,
     hostname: &str,
     connect_options: Option<SshConnectOptions<'a>>,
-    source: &PathBuf,
+    dir: &PathBuf,
     destination: &str,
 ) -> Result<(), CliError> {
-    for entry in walkdir::WalkDir::new(source) {
-        let entry = entry.map_err(|e| IOError::with_debug(&e))?;
-        let path = entry.path();
-        if path.is_file() {
-            let relative_path = path.strip_prefix(source).map_err(|e| {
-                CriticalError::with_debug(
-                    &format!(
-                        "unexpectedly, {} is not a child of {}.",
-                        path.display(),
-                        source.display(),
-                    ),
-                    &e,
-                )
-            })?;
-            let destination_path = format!("{}/{}", destination, relative_path.display());
-            scp(
-                pr,
-                ex,
-                user,
-                hostname,
-                connect_options,
-                &path.to_path_buf(),
-                &destination_path,
-            )?;
-        }
-    }
-    Ok(())
+    let files = walkdir::WalkDir::new(dir)
+        .into_iter()
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.file_type().is_file())
+        .map(|entry| {
+            Ok::<_, CliError>(
+                entry
+                    .path()
+                    .strip_prefix(dir)
+                    .map_err(|e| {
+                        CriticalError::with_debug(
+                            &format!(
+                                "unexpectedly, {} is not a child of {}.",
+                                entry.path().display(),
+                                dir.display(),
+                            ),
+                            &e,
+                        )
+                    })?
+                    .to_path_buf(),
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    scp(
+        pr,
+        ex,
+        user,
+        hostname,
+        connect_options,
+        files.iter().collect(),
+        destination,
+    )
 }
