@@ -21,7 +21,8 @@ where
     S: AsRef<Path>,
     D: AsRef<Path>,
 {
-    std::fs::rename(src, dst).map_err(|e| IOError::with_debug(&e))?;
+    std::fs::copy(&src, dst).map_err(|e| IOError::with_debug(&e))?;
+    std::fs::remove_file(src).map_err(|e| IOError::with_debug(&e))?;
     Ok(())
 }
 
