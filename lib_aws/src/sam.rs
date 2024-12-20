@@ -3,14 +3,23 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use lib_core::{CliError, ExecuteOptions, Executor, IOMode, Printer};
+use lib_core::{ln_s, CliError, ExecuteOptions, Executor, IOMode, Printer};
 
 pub async fn sam_build(pr: &Printer, ex: &Executor, project_dir: &Path) -> Result<(), CliError> {
     pr.info("Building with SAM...");
     if let Ok(ref workdir) = std::env::var("CARGO_LAMBDA_BUILD_DIR") {
-        pr.info(&format!("Using build dir: '{}'.", workdir));
+        // Allow overriding the build directory with an environment variable,
+        // which sets both the SAM output directory, as well as the Cargo target
+        // directory.
+        pr.info(&format!("Using custom build dir: '{}'.", workdir));
         let sam_build_dir = PathBuf::from(workdir).join("build");
         let cargo_target_dir = PathBuf::from(workdir).join("target");
+
+        // It seems SAM isn't fully compatible with a custom CARGO_TARGET_DIR,
+        // so we need to symlink the expected '/target' directory to our custom
+        // location.
+        ln_s(&cargo_target_dir, project_dir.join("target"))?;
+
         ex.execute_with_options(
             "sam",
             &[
