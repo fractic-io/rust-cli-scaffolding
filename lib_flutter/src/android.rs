@@ -67,10 +67,10 @@ pub fn start_android_emulator(
     //   - Errors are by default not output to stderr, so they are not displayed
     //   by execute_background. So we redirect with grep.
     let cmd = format!(
-        "emulator -no-snapshot -wipe-data -no-window -no-audio -port {} -avd {} -delay-adb 2>&1 | tee >(grep 'ERROR' >&2)",
+        "emulator -no-snapshot -wipe-data -no-window -no-audio -port {} -avd {} -delay-adb 2>&1 | tee >(grep 'INFO' >&2)",
         port, avd_id
     );
-    ex.execute_background("emulator", &[&cmd], None)?;
+    ex.execute_background("bash", &["-c", &cmd], None)?;
 
     // Wait for the emulator to start.
     pr.info("Waiting for device to boot...");
