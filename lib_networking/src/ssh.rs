@@ -25,6 +25,7 @@ define_cli_error!(
     { port: u16 }
 );
 
+#[derive(Debug)]
 pub enum PortForward {
     Local,
     Remote,
