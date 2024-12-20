@@ -2,10 +2,17 @@ use std::{collections::HashMap, path::Path};
 
 use lib_core::{ln_s, mkdir_p, rm_rf, CliError, ExecuteOptions, Executor, IOMode, Printer};
 
-pub async fn sam_build(pr: &Printer, ex: &Executor, project_dir: &Path) -> Result<(), CliError> {
+pub async fn sam_build(
+    pr: &Printer,
+    ex: &Executor,
+    project_dir: &Path,
+    debug: bool,
+) -> Result<(), CliError> {
     pr.info("Building with SAM...");
 
-    let env = if let Ok(target_dir) = std::env::var("CARGO_LAMBDA_TARGET_DIR") {
+    let mut env = Vec::new();
+
+    if let Ok(target_dir) = std::env::var("CARGO_LAMBDA_TARGET_DIR") {
         pr.info(&format!("Using custom target dir: '{}'.", target_dir));
 
         // It seems SAM isn't fully compatible with a custom CARGO_TARGET_DIR,
@@ -15,10 +22,29 @@ pub async fn sam_build(pr: &Printer, ex: &Executor, project_dir: &Path) -> Resul
         rm_rf(&expected_target_dir)?;
         mkdir_p(&target_dir)?;
         ln_s(&target_dir, &expected_target_dir)?;
-        Some(vec![("CARGO_TARGET_DIR".to_string(), target_dir)])
-    } else {
-        None
+        env.push(("CARGO_TARGET_DIR".to_string(), target_dir));
     };
+
+    if debug {
+        // SAM doesn't support building with Cargo --debug flag, so we must
+        // override Cargo settings via environment variables.
+        env.push((
+            "CARGO_PROFILE_RELEASE_OPT_LEVEL".to_string(),
+            "0".to_string(),
+        ));
+        env.push((
+            "CARGO_PROFILE_RELEASE_INCREMENTAL".to_string(),
+            "true".to_string(),
+        ));
+        env.push((
+            "CARGO_PROFILE_RELEASE_CODEGEN_UNITS".to_string(),
+            "256".to_string(),
+        ));
+        env.push((
+            "CARGO_PROFILE_RELEASE_DEBUG".to_string(),
+            "true".to_string(),
+        ));
+    }
 
     ex.execute_with_options(
         "sam",
@@ -26,7 +52,7 @@ pub async fn sam_build(pr: &Printer, ex: &Executor, project_dir: &Path) -> Resul
         IOMode::Attach,
         ExecuteOptions {
             dir: Some(project_dir),
-            env,
+            env: Some(env),
             ..Default::default()
         },
     )?;
