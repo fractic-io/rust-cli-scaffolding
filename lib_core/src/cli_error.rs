@@ -58,10 +58,10 @@ impl<T> AnnotatableResult for Result<T, CliError> {
 // Definining custom CLI errors.
 // --------------------------------------------------
 
-struct CliErrorContext;
+pub struct CliErrorContext;
 
 impl CliErrorContext {
-    fn capture() -> String {
+    pub fn capture() -> String {
         fractic_server_error::ServerErrorContext::Full.capture()
     }
 }
