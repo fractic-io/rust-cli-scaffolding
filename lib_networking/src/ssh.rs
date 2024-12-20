@@ -43,6 +43,13 @@ pub struct PortForwardHandle {
     _session: Session,
 }
 
+#[derive(Debug, Default, Clone, Copy)]
+pub struct SshConnectOptions<'a> {
+    pub port: Option<u16>,
+    pub identity_file: Option<&'a PathBuf>,
+    pub known_hosts_file: Option<&'a PathBuf>,
+}
+
 #[derive(Debug, Default)]
 pub struct SshAttachOptions<'a> {
     pub command: Option<&'a str>,
@@ -50,13 +57,17 @@ pub struct SshAttachOptions<'a> {
 }
 
 /// Returns the IP address the hostname resolves to once it becomes available.
-pub async fn wait_until_ssh_available(
+pub async fn wait_until_ssh_available<'a>(
     pr: &mut Printer,
     user: &str,
     hostname: &str,
-    port: u16,
-    identity_file: &PathBuf,
+    connect_options: Option<SshConnectOptions<'a>>,
 ) -> Result<String, CliError> {
+    let port = connect_options
+        .as_ref()
+        .and_then(|co| co.port)
+        .unwrap_or(22);
+
     // First, wait for socket to be open.
     let ip = wait_until_socket_open(pr, hostname, port).await?;
 
@@ -66,9 +77,7 @@ pub async fn wait_until_ssh_available(
     pr.with_status_bar(|mut status_bar| async move {
         let mut last_error = None;
         while start_time.elapsed() < timeout_duration {
-            match ssh_exec_command(user, hostname, port, identity_file, "echo", &["Connected."])
-                .await
-            {
+            match ssh_exec_command(user, hostname, connect_options, "echo", &["Connected."]).await {
                 Ok(_) => {
                     status_bar.important("Connected.");
                     return Ok(ip);
@@ -89,12 +98,11 @@ pub async fn wait_until_ssh_available(
 }
 
 /// The port forwarding remains active until the returned PortForwardHandle is dropped.
-pub async fn forward_port(
+pub async fn forward_port<'a>(
     pr: &Printer,
     user: &str,
     hostname: &str,
-    ssh_port: u16,
-    identity_file: &PathBuf,
+    connect_options: Option<SshConnectOptions<'a>>,
     direction: PortForward,
     forward_port: u16,
     force_close_existing: bool,
@@ -110,6 +118,16 @@ pub async fn forward_port(
         )),
     }
 
+    let connect_opt = connect_options.unwrap_or_default();
+    let ssh_port = connect_opt.port.unwrap_or(22).to_string();
+    let identity_file = connect_opt
+        .identity_file
+        .map_or_else(|| "~/.ssh/id_rsa".to_string(), |p| p.display().to_string());
+    let known_hosts_file = connect_opt.known_hosts_file.map_or_else(
+        || "~/.ssh/known_hosts".to_string(),
+        |p| p.display().to_string(),
+    );
+
     if force_close_existing {
         close_open_sockets_on_port(pr, forward_port)?;
     }
@@ -117,6 +135,7 @@ pub async fn forward_port(
     let session = SessionBuilder::default()
         .known_hosts_check(KnownHosts::Add)
         .keyfile(identity_file)
+        .user_known_hosts_file(known_hosts_file)
         .connect(format!("ssh://{}@{}:{}", user, hostname, ssh_port))
         .await
         .map_err(|e| SshConnectionError::with_debug(&e))?;
@@ -186,17 +205,27 @@ pub fn ssh_cache_identity(
 }
 
 /// Identity must be cached before calling this function.
-pub async fn ssh_exec_command(
+pub async fn ssh_exec_command<'a>(
     user: &str,
     hostname: &str,
-    port: u16,
-    identity_file: &PathBuf,
+    connect_options: Option<SshConnectOptions<'a>>,
     program: &str,
     args: &[&str],
 ) -> Result<String, CliError> {
+    let connect_opt = connect_options.unwrap_or_default();
+    let port = connect_opt.port.unwrap_or(22).to_string();
+    let identity_file = connect_opt
+        .identity_file
+        .map_or_else(|| "~/.ssh/id_rsa".to_string(), |p| p.display().to_string());
+    let known_hosts_file = connect_opt.known_hosts_file.map_or_else(
+        || "~/.ssh/known_hosts".to_string(),
+        |p| p.display().to_string(),
+    );
+
     let session = SessionBuilder::default()
         .known_hosts_check(KnownHosts::Add)
         .keyfile(identity_file)
+        .user_known_hosts_file(known_hosts_file)
         .connect(format!("ssh://{}@{}:{}", user, hostname, port))
         .await
         .map_err(|e| SshConnectionError::with_debug(&e))?;
@@ -211,21 +240,28 @@ pub async fn ssh_exec_command(
     String::from_utf8(out.stdout).map_err(|e| InvalidUTF8::with_debug(&e))
 }
 
-pub fn ssh_attach(
+pub fn ssh_attach<'a>(
     ex: &Executor,
     user: &str,
     hostname: &str,
-    port: u16,
-    identity_file: &PathBuf,
-    options: Option<SshAttachOptions>,
+    connect_options: Option<SshConnectOptions<'a>>,
+    attach_options: Option<SshAttachOptions>,
 ) -> Result<(), CliError> {
-    let options = options.unwrap_or_default();
+    let connect_opt = connect_options.unwrap_or_default();
+    let attach_opt = attach_options.unwrap_or_default();
 
-    let port = port.to_string();
-    let identity_file = identity_file.display().to_string();
+    let port = connect_opt.port.unwrap_or(22).to_string();
+    let identity_file = connect_opt
+        .identity_file
+        .map_or_else(|| "~/.ssh/id_rsa".to_string(), |p| p.display().to_string());
+    let known_hosts_file = connect_opt.known_hosts_file.map_or_else(
+        || "~/.ssh/known_hosts".to_string(),
+        |p| p.display().to_string(),
+    );
+    let known_hosts_opt = format!("UserKnownHostsFile={}", known_hosts_file);
     let address = format!("{}@{}", user, hostname);
 
-    let command = match (options.inactivity_timeout, options.command) {
+    let command = match (attach_opt.inactivity_timeout, attach_opt.command) {
         (Some(timeout), Some(command)) => {
             format!("timeout {}s {}", timeout.as_secs(), command)
         }
@@ -241,6 +277,8 @@ pub fn ssh_attach(
         &identity_file,
         "-o",
         "StrictHostKeyChecking=accept-new",
+        "-o",
+        &known_hosts_opt,
         &address,
         "-t",
         &command,
