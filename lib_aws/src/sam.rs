@@ -13,13 +13,6 @@ pub async fn sam_build(
     let mut env = Vec::new();
 
     if let Ok(target_dir) = std::env::var("CARGO_LAMBDA_TARGET_DIR") {
-        let target_dir = match debug {
-            false => target_dir,
-            // (To avoid 'poisoning' the release target directory with debug
-            // symbols, the cache of which might make its way into subsequent
-            // release builds.)
-            true => target_dir + "_debug",
-        };
         pr.info(&format!("Using custom target dir: '{}'.", target_dir));
 
         // It seems SAM isn't fully compatible with a custom CARGO_TARGET_DIR,
@@ -33,24 +26,7 @@ pub async fn sam_build(
     };
 
     if debug {
-        // SAM doesn't support building with Cargo --debug flag, so we must
-        // override Cargo settings via environment variables.
-        env.push((
-            "CARGO_PROFILE_RELEASE_OPT_LEVEL".to_string(),
-            "0".to_string(),
-        ));
-        env.push((
-            "CARGO_PROFILE_RELEASE_INCREMENTAL".to_string(),
-            "true".to_string(),
-        ));
-        env.push((
-            "CARGO_PROFILE_RELEASE_CODEGEN_UNITS".to_string(),
-            "256".to_string(),
-        ));
-        env.push((
-            "CARGO_PROFILE_RELEASE_DEBUG".to_string(),
-            "true".to_string(),
-        ));
+        env.push(("SAM_BUILD_MODE".to_string(), "debug".to_string()));
     }
 
     ex.execute_with_options(
