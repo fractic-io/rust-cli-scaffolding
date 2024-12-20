@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use lib_core::{CliError, CriticalError, Executor, IOMode, Printer};
+use lib_core::{CliError, CriticalError, ExecuteOptions, Executor, IOMode, Printer};
 use tempfile::tempdir;
 
 use crate::upload_dir_to_s3;
@@ -17,7 +17,7 @@ pub async fn cargo_lambda_build_to_s3(
     pr.info("Building binaries...");
     let target_dir =
         tempdir().map_err(|e| CriticalError::with_debug("failed to get temp dir", &e))?;
-    ex.execute(
+    ex.execute_with_options(
         "cargo",
         &[
             "lambda",
@@ -31,8 +31,11 @@ pub async fn cargo_lambda_build_to_s3(
             "--release",
             "--arm64",
         ],
-        Some(crate_dir),
         IOMode::Attach,
+        ExecuteOptions {
+            dir: Some(crate_dir),
+            ..Default::default()
+        },
     )?;
     pr.info("Uploading zip files to S3...");
     upload_dir_to_s3(pr, profile, region, bucket, key_prefix, target_dir.path()).await?;

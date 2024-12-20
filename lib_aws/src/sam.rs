@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::Path};
 
-use lib_core::{CliError, Executor, IOMode, Printer};
+use lib_core::{CliError, ExecuteOptions, Executor, IOMode, Printer};
 
 pub async fn sam_build(pr: &Printer, ex: &Executor, project_dir: &Path) -> Result<(), CliError> {
     pr.info("Building with SAM...");
@@ -11,7 +11,15 @@ pub async fn sam_build(pr: &Printer, ex: &Executor, project_dir: &Path) -> Resul
         args.push("--build-dir");
         args.push(build_dir);
     }
-    ex.execute("sam", &args, Some(project_dir), IOMode::Attach)?;
+    ex.execute_with_options(
+        "sam",
+        &args,
+        IOMode::Attach,
+        ExecuteOptions {
+            dir: Some(project_dir),
+            ..Default::default()
+        },
+    )?;
     Ok(())
 }
 
@@ -45,11 +53,14 @@ pub async fn sam_deploy(
     .collect::<Vec<_>>();
 
     pr.info("Deploying with SAM...");
-    ex.execute(
+    ex.execute_with_options(
         "sam",
         &args.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
-        Some(project_dir),
         IOMode::Attach,
+        ExecuteOptions {
+            dir: Some(project_dir),
+            ..Default::default()
+        },
     )?;
     Ok(())
 }

@@ -15,7 +15,7 @@ pub fn create_android_emulator_if_not_exists(
     avd_image: &str,
 ) -> Result<(), CliError> {
     let avd_exists = ex
-        .execute("avdmanager", &["list", "avd"], None, IOMode::Silent)?
+        .execute("avdmanager", &["list", "avd"], IOMode::Silent)?
         .split("\n")
         .any(|line| line.trim() == format!("Name: {}", avd_id));
 
@@ -24,7 +24,7 @@ pub fn create_android_emulator_if_not_exists(
             "Ensuring system image '{}' is installed...",
             avd_image
         ));
-        ex.execute("sdkmanager", &[avd_image], None, IOMode::StreamOutput)
+        ex.execute("sdkmanager", &[avd_image], IOMode::StreamOutput)
             .map_err(|e| AndroidSystemImageMissing::with_debug(avd_image, &e))?;
 
         pr.info(&format!(
@@ -37,7 +37,6 @@ pub fn create_android_emulator_if_not_exists(
             &[
                 "create", "avd", "-n", avd_id, "-d", avd_id, "-k", avd_image, "--force",
             ],
-            None,
             IOMode::StreamOutput,
         )?;
     } else {
@@ -89,7 +88,6 @@ pub fn start_android_emulator(
             "shell",
             "while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done",
         ],
-        None,
         IOMode::StreamOutput,
     )?;
 
@@ -106,7 +104,6 @@ pub fn kill_android_emulator(pr: &Printer, ex: &Executor, adb_id: String) -> Res
     ex.execute(
         "adb",
         &["-s", &adb_id, "shell", "reboot", "-p"],
-        None,
         IOMode::Silent,
     )?;
 

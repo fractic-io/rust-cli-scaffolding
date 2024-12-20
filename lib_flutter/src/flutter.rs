@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use lib_core::{define_cli_error, CliError, Executor, IOMode, Printer};
+use lib_core::{define_cli_error, CliError, ExecuteOptions, Executor, IOMode, Printer};
 
 define_cli_error!(
     FlutterBuildTypeDoesntSupportInstall,
@@ -62,7 +62,15 @@ pub fn run_flutter_integration_test(
         .collect();
     args.extend(setexprs.iter().map(|s| s.as_str()));
 
-    ex.execute("flutter", &args, Some(dir), IOMode::StreamOutput)?;
+    ex.execute_with_options(
+        "flutter",
+        &args,
+        IOMode::StreamOutput,
+        ExecuteOptions {
+            dir: Some(dir),
+            ..Default::default()
+        },
+    )?;
 
     Ok(())
 }
@@ -113,7 +121,15 @@ pub fn flutter_build(
     if let Some(flavor) = flavor {
         args.extend(&["--flavor", flavor]);
     }
-    ex.execute("flutter", &args, Some(dir), IOMode::StreamOutput)?;
+    ex.execute_with_options(
+        "flutter",
+        &args,
+        IOMode::StreamOutput,
+        ExecuteOptions {
+            dir: Some(dir),
+            ..Default::default()
+        },
+    )?;
     fs::canonicalize(dir.join(&output_path))
         .map_err(|e| FlutterUnexpectedBuildOutputPath::with_debug(&output_path, &e))
 }
@@ -148,13 +164,30 @@ pub fn flutter_install(
             ex.execute(
                 "adb",
                 &["install", "-r", &output_path.to_string_lossy()],
-                Some(dir),
                 IOMode::StreamOutput,
             )
-            .or_else(|_| ex.execute("flutter", &install_args, Some(dir), IOMode::StreamOutput))?;
+            .or_else(|_| {
+                ex.execute_with_options(
+                    "flutter",
+                    &install_args,
+                    IOMode::StreamOutput,
+                    ExecuteOptions {
+                        dir: Some(dir),
+                        ..Default::default()
+                    },
+                )
+            })?;
         }
         BuildFor::Ios => {
-            ex.execute("flutter", &install_args, Some(dir), IOMode::StreamOutput)?;
+            ex.execute_with_options(
+                "flutter",
+                &install_args,
+                IOMode::StreamOutput,
+                ExecuteOptions {
+                    dir: Some(dir),
+                    ..Default::default()
+                },
+            )?;
         }
         _ => return Err(FlutterBuildTypeDoesntSupportInstall::new(&os)),
     }

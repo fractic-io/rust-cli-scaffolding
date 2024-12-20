@@ -35,6 +35,12 @@ pub enum IOMode {
     Mute,
 }
 
+#[derive(Debug, Default)]
+pub struct ExecuteOptions<'a> {
+    pub dir: Option<&'a Path>,
+    pub env: Option<Vec<(String, String)>>,
+}
+
 #[derive(Debug)]
 pub struct Executor {
     background_processes: Vec<std::process::Child>,
@@ -51,16 +57,26 @@ impl Executor {
         &self,
         program: &str,
         args: &[&str],
-        dir: Option<&Path>,
         io_mode: IOMode,
     ) -> Result<String, CliError> {
-        let abs_dir = match dir {
+        self.execute_with_options(program, args, io_mode, ExecuteOptions::default())
+    }
+
+    pub fn execute_with_options(
+        &self,
+        program: &str,
+        args: &[&str],
+        io_mode: IOMode,
+        options: ExecuteOptions,
+    ) -> Result<String, CliError> {
+        let abs_dir = match options.dir {
             Some(p) => fs::canonicalize(p).map_err(|e| IOError::with_debug(&e))?,
             None => std::env::current_dir().map_err(|e| IOError::with_debug(&e))?,
         };
         let mut child = std::process::Command::new(program)
             .args(args)
             .current_dir(abs_dir)
+            .envs(options.env.unwrap_or_default())
             .stdin(match io_mode {
                 IOMode::Attach => std::process::Stdio::inherit(),
                 IOMode::StreamOutput | IOMode::Silent | IOMode::Mute => std::process::Stdio::null(),
@@ -177,12 +193,11 @@ impl Executor {
     }
 
     pub(crate) fn sudo_is_cached(&self) -> bool {
-        self.execute("sudo", &["-n", "true"], None, IOMode::Mute)
-            .is_ok()
+        self.execute("sudo", &["-n", "true"], IOMode::Mute).is_ok()
     }
 
     pub(crate) fn cache_sudo(&self) -> Result<(), CliError> {
-        self.execute("sudo", &["echo", "-n"], None, IOMode::Attach)?;
+        self.execute("sudo", &["echo", "-n"], IOMode::Attach)?;
         Ok(())
     }
 }
