@@ -2,7 +2,9 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
 
-use crate::CliError;
+use tokio::{select, signal};
+
+use crate::{CliError, CtrlC};
 
 use super::{Executor, Printer, UserPreferences};
 
@@ -77,7 +79,12 @@ impl Tty {
         let local_printer = self.printer.clone();
         local_printer.section_open(name);
         Box::pin(async move {
-            let result = f(&mut self.printer, &mut self.executor).await;
+            let result = select! {
+                result = f(&mut self.printer, &mut self.executor) => result,
+                _ = signal::ctrl_c() => {
+                    Err(CtrlC::new())
+                }
+            };
             match result {
                 Ok(value) => {
                     local_printer.section_close();

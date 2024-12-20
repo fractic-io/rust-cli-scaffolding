@@ -129,6 +129,7 @@ define_cli_error!(CriticalError, "Unexpected: {details}.", { details: &str });
 define_cli_error!(MultithreadingError, "Error executing child threads.");
 define_cli_error!(IOError, "IO error.");
 define_cli_error!(InvalidUTF8, "Could not parse bytes as UTF-8.");
+define_cli_error!(CtrlC, "Ctrl-C pressed.");
 
 // Conversion from ServerError.
 // --------------------------------------------------
