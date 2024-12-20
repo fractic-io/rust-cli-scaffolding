@@ -67,7 +67,7 @@ pub fn start_android_emulator(
     // $ANDROID_HOME/tools/emulator. This should be the default in a modern
     // setup, especially when using Nix.
     ex.execute_background(
-        &format!("emulator", android_home),
+        "emulator",
         &[
             "-no-snapshot",
             "-wipe-data",
