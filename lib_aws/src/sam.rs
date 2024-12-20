@@ -5,7 +5,7 @@ use lib_core::{CliError, Executor, IOMode, Printer};
 pub async fn sam_build(pr: &Printer, ex: &Executor, project_dir: &Path) -> Result<(), CliError> {
     pr.info("Building with SAM...");
     let args = vec!["build"];
-    if let Some(build_dir) = std::env::var("CARGO_LAMBDA_BUILD_DIR") {
+    if let Ok(build_dir) = std::env::var("CARGO_LAMBDA_BUILD_DIR") {
         pr.info(&format!("Using build dir: '{}'", build_dir));
         args.push("--build-dir");
         args.push(&build_dir);
