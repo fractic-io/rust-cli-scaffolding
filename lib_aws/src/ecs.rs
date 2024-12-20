@@ -158,3 +158,34 @@ pub async fn set_capacity_provider_desired_size(
     set_auto_scaling_group_desired_size(pr, profile, region, &auto_scaling_group_name, desired_size)
         .await
 }
+
+pub async fn stop_all_tasks(
+    pr: &Printer,
+    profile: &str,
+    region: &str,
+    cluster: &str,
+) -> Result<(), CliError> {
+    pr.info(&format!(
+        "Stopping all tasks on cluster '{}' ({})...",
+        cluster, region
+    ));
+    let client = Client::new(&config_from_profile(profile, region).await);
+    let tasks = client
+        .list_tasks()
+        .cluster(cluster)
+        .send()
+        .await
+        .map_err(|e| EcsError::with_debug(&e))?
+        .task_arns
+        .unwrap_or_default();
+    for task in tasks {
+        client
+            .stop_task()
+            .cluster(cluster)
+            .task(task)
+            .send()
+            .await
+            .map_err(|e| EcsError::with_debug(&e))?;
+    }
+    Ok(())
+}
