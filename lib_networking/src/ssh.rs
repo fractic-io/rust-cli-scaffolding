@@ -1,4 +1,6 @@
-use lib_core::{define_cli_error, CliError, CriticalError, Executor, IOMode, InvalidUTF8, Printer};
+use lib_core::{
+    define_cli_error, CliError, CriticalError, Executor, IOError, IOMode, InvalidUTF8, Printer,
+};
 use openssh::{ForwardType, KnownHosts, Session, SessionBuilder};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -299,5 +301,89 @@ pub fn ssh_attach<'a>(
     ];
 
     ex.execute("ssh", &args, IOMode::Attach)?;
+    Ok(())
+}
+
+pub fn scp<'a>(
+    pr: &Printer,
+    ex: &Executor,
+    user: &str,
+    hostname: &str,
+    connect_options: Option<SshConnectOptions<'a>>,
+    source: &str,
+    destination: &str,
+) -> Result<(), CliError> {
+    let connect_opt = connect_options.unwrap_or_default();
+    let port = connect_opt.port.unwrap_or(22).to_string();
+    let identity_file = connect_opt
+        .identity_file
+        .map_or_else(|| "~/.ssh/id_rsa".to_string(), |p| p.display().to_string());
+    let known_hosts_file = connect_opt.known_hosts_file.map_or_else(
+        || "~/.ssh/known_hosts".to_string(),
+        |p| p.display().to_string(),
+    );
+    let connect_timeout = connect_opt
+        .connect_timeout
+        .unwrap_or(Duration::from_secs(10));
+    let known_hosts_opt = format!("UserKnownHostsFile={}", known_hosts_file);
+    let connect_timeout_opt = format!("ConnectTimeout={}", connect_timeout.as_secs());
+    let output_location = format!("{}@{}:{}", user, hostname, destination);
+
+    pr.info(&format!("Copying '{}' to '{}'...", source, output_location));
+
+    let args = vec![
+        "-P",
+        &port,
+        "-i",
+        &identity_file,
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+        "-o",
+        &known_hosts_opt,
+        "-o",
+        &connect_timeout_opt,
+        source,
+        &output_location,
+    ];
+
+    ex.execute("scp", &args, IOMode::Silent)?;
+    Ok(())
+}
+
+pub fn scp_dir<'a>(
+    pr: &Printer,
+    ex: &Executor,
+    user: &str,
+    hostname: &str,
+    connect_options: Option<SshConnectOptions<'a>>,
+    source: &str,
+    destination: &str,
+) -> Result<(), CliError> {
+    for entry in walkdir::WalkDir::new(source) {
+        let entry = entry.map_err(|e| IOError::with_debug(&e))?;
+        let path = entry.path();
+        if path.is_file() {
+            let relative_path = path.strip_prefix(source).map_err(|e| {
+                CriticalError::with_debug(
+                    &format!(
+                        "unexpectedly, {} is not a child of {}.",
+                        path.display(),
+                        source
+                    ),
+                    &e,
+                )
+            })?;
+            let destination_path = format!("{}/{}", destination, relative_path.display());
+            scp(
+                pr,
+                ex,
+                user,
+                hostname,
+                connect_options,
+                path.to_str().unwrap(),
+                &destination_path,
+            )?;
+        }
+    }
     Ok(())
 }
