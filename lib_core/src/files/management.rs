@@ -51,6 +51,9 @@ pub fn rm_rf<P>(path: P) -> Result<(), CliError>
 where
     P: AsRef<Path>,
 {
+    if !path.as_ref().exists() {
+        return Ok(());
+    }
     std::fs::remove_dir_all(path).map_err(|e| IOError::with_debug(&e))?;
     Ok(())
 }
