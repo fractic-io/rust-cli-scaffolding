@@ -1,6 +1,30 @@
+use std::{env, fs, path::PathBuf};
+
 use lib_core::{
-    define_cli_error, deterministic_number_from_string, CliError, Executor, IOMode, Printer,
+    define_cli_error, deterministic_number_from_string, CliError, CriticalError, Executor, IOMode,
+    Printer,
 };
+
+define_cli_error!(
+    FailedToSetAvdOrientation,
+    "Failed to set the orientation of the AVD '{avd_name}' to '{orientation}': {details}.",
+    { avd_name: &str, orientation: &str, details: &str }
+);
+
+#[derive(Debug, Clone, Copy)]
+pub enum Orientation {
+    Portrait,
+    Landscape,
+}
+
+impl Orientation {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Orientation::Portrait => "portrait",
+            Orientation::Landscape => "landscape",
+        }
+    }
+}
 
 define_cli_error!(
     AndroidSystemImageMissing,
@@ -13,6 +37,7 @@ pub fn create_android_emulator_if_not_exists(
     ex: &Executor,
     avd_id: &str,
     avd_image: &str,
+    orientation: Orientation,
 ) -> Result<(), CliError> {
     let avd_exists = ex
         .execute("avdmanager", &["list", "avd"], IOMode::Silent)?
@@ -40,6 +65,7 @@ pub fn create_android_emulator_if_not_exists(
             ],
             IOMode::StreamOutput,
         )?;
+        set_avd_orientation(avd_id, orientation)?;
     } else {
         pr.info(&format!("AVD '{}' already exists.", avd_id));
     }
@@ -114,4 +140,61 @@ pub fn kill_android_emulator(pr: &Printer, ex: &Executor, adb_id: String) -> Res
 
 fn port_number_from_avd_id(avd_id: &str) -> u32 {
     deterministic_number_from_string(avd_id, 5600, 5800)
+}
+
+fn set_avd_orientation(avd_name: &str, orientation: Orientation) -> Result<(), CliError> {
+    let android_home_path = env::var("ANDROID_USER_HOME")
+        .or_else(|_| env::var("HOME").map(|home| format!("{}/.android", home)))
+        .map_err(|_| CriticalError::new("neither $ANDROID_USER_HOME nor $HOME is set"))?;
+
+    // Compute the path to the AVD configuration file.
+    let config_path = PathBuf::from(format!(
+        "{}/avd/{}.avd/config.ini",
+        android_home_path, avd_name
+    ));
+
+    if config_path.exists() {
+        // Read and modify the config.ini file.
+        let mut config = fs::read_to_string(&config_path).map_err(|e| {
+            FailedToSetAvdOrientation::with_debug(
+                avd_name,
+                orientation.as_str(),
+                "failed to read config",
+                &e,
+            )
+        })?;
+        let orientation_str = orientation.as_str();
+
+        if !config.contains("hw.initialOrientation=") {
+            config.push_str(&format!("\nhw.initialOrientation={}\n", orientation_str));
+        } else {
+            config = config
+                .lines()
+                .map(|line| {
+                    if line.starts_with("hw.initialOrientation=") {
+                        format!("hw.initialOrientation={}", orientation_str)
+                    } else {
+                        line.to_string()
+                    }
+                })
+                .collect::<Vec<String>>()
+                .join("\n");
+        }
+        fs::write(&config_path, config).map_err(|e| {
+            FailedToSetAvdOrientation::with_debug(
+                avd_name,
+                orientation.as_str(),
+                "failed to write changes",
+                &e,
+            )
+        })?;
+    } else {
+        return Err(FailedToSetAvdOrientation::with_debug(
+            avd_name,
+            orientation.as_str(),
+            "config file not found",
+            &config_path,
+        ));
+    }
+    Ok(())
 }
