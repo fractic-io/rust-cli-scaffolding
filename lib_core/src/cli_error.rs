@@ -61,6 +61,7 @@ impl<T> AnnotatableResult for Result<T, CliError> {
 pub struct CliErrorContext;
 
 impl CliErrorContext {
+    #[track_caller]
     pub fn capture() -> String {
         fractic_server_error::ServerErrorContext::Full.capture()
     }
