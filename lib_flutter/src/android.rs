@@ -1,5 +1,3 @@
-use std::{env, fs, path::PathBuf};
-
 use lib_core::{
     define_cli_error, deterministic_number_from_string, CliError, CriticalError, Executor, IOMode,
     Printer,
@@ -57,7 +55,7 @@ pub fn create_android_emulator_if_not_exists(
             avd_id, avd_image
         ));
 
-        // Create the AVD
+        // Create the AVD.
         ex.execute(
             "avdmanager",
             &[
@@ -120,7 +118,7 @@ pub fn start_android_emulator(
 }
 
 pub fn kill_android_emulator(pr: &Printer, ex: &Executor, adb_id: String) -> Result<(), CliError> {
-    // Stop the emulator
+    // Stop the emulator.
     pr.info(&format!("Stopping emulator '{}'...", adb_id));
     ex.execute(
         "adb",
@@ -143,52 +141,17 @@ fn port_number_from_avd_id(avd_id: &str) -> u32 {
 }
 
 fn set_avd_orientation(avd_name: &str, orientation: Orientation) -> Result<(), CliError> {
-    let android_home_path = env::var("ANDROID_USER_HOME")
-        .or_else(|_| env::var("HOME").map(|home| format!("{}/.android", home)))
+    let android_home_path = std::env::var("ANDROID_USER_HOME")
+        .or_else(|_| std::env::var("HOME").map(|home| format!("{}/.android", home)))
         .map_err(|_| CriticalError::new("neither $ANDROID_USER_HOME nor $HOME is set"))?;
 
     // Compute the path to the AVD configuration file.
-    let config_path = PathBuf::from(format!(
+    let config_path = std::path::PathBuf::from(format!(
         "{}/avd/{}.avd/config.ini",
         android_home_path, avd_name
     ));
 
-    if config_path.exists() {
-        // Read and modify the config.ini file.
-        let mut config = fs::read_to_string(&config_path).map_err(|e| {
-            FailedToSetAvdOrientation::with_debug(
-                avd_name,
-                orientation.as_str(),
-                "failed to read config",
-                &e,
-            )
-        })?;
-        let orientation_str = orientation.as_str();
-
-        if !config.contains("hw.initialOrientation=") {
-            config.push_str(&format!("\nhw.initialOrientation={}\n", orientation_str));
-        } else {
-            config = config
-                .lines()
-                .map(|line| {
-                    if line.starts_with("hw.initialOrientation=") {
-                        format!("hw.initialOrientation={}", orientation_str)
-                    } else {
-                        line.to_string()
-                    }
-                })
-                .collect::<Vec<String>>()
-                .join("\n");
-        }
-        fs::write(&config_path, config).map_err(|e| {
-            FailedToSetAvdOrientation::with_debug(
-                avd_name,
-                orientation.as_str(),
-                "failed to write changes",
-                &e,
-            )
-        })?;
-    } else {
+    if !config_path.exists() {
         return Err(FailedToSetAvdOrientation::with_debug(
             avd_name,
             orientation.as_str(),
@@ -196,5 +159,114 @@ fn set_avd_orientation(avd_name: &str, orientation: Orientation) -> Result<(), C
             &config_path,
         ));
     }
+
+    // Read and modify the config.ini file.
+    let config_str = std::fs::read_to_string(&config_path).map_err(|e| {
+        FailedToSetAvdOrientation::with_debug(
+            avd_name,
+            orientation.as_str(),
+            "failed to read config",
+            &e,
+        )
+    })?;
+
+    let mut lines: Vec<String> = config_str.lines().map(|l| l.to_string()).collect();
+
+    let orientation_str = orientation.as_str();
+
+    // Find or insert hw.initialOrientation.
+    let mut found_orientation = false;
+    for line in lines.iter_mut() {
+        if line.starts_with("hw.initialOrientation=") {
+            *line = format!("hw.initialOrientation={}", orientation_str);
+            found_orientation = true;
+            break;
+        }
+    }
+
+    if !found_orientation {
+        lines.push(format!("hw.initialOrientation={}", orientation_str));
+    }
+
+    // Parse the current width/height.
+    let mut width_val: Option<i32> = None;
+    let mut height_val: Option<i32> = None;
+
+    for line in &lines {
+        if line.starts_with("hw.lcd.width=") {
+            let val_str = line.trim_start_matches("hw.lcd.width=");
+            width_val = val_str.parse().ok();
+        } else if line.starts_with("hw.lcd.height=") {
+            let val_str = line.trim_start_matches("hw.lcd.height=");
+            height_val = val_str.parse().ok();
+        }
+    }
+
+    // If we couldn't find these values, consider returning an error or setting defaults.
+    let mut width = width_val.ok_or_else(|| {
+        FailedToSetAvdOrientation::with_debug(
+            avd_name,
+            orientation.as_str(),
+            "hw.lcd.width not found or not an integer",
+            &config_path,
+        )
+    })?;
+    let mut height = height_val.ok_or_else(|| {
+        FailedToSetAvdOrientation::with_debug(
+            avd_name,
+            orientation.as_str(),
+            "hw.lcd.height not found or not an integer",
+            &config_path,
+        )
+    })?;
+
+    // Adjust dimensions based on orientation.
+    match orientation {
+        Orientation::Portrait => {
+            // Ensure height > width.
+            if width > height {
+                std::mem::swap(&mut width, &mut height);
+            }
+        }
+        Orientation::Landscape => {
+            // Ensure width > height.
+            if height > width {
+                std::mem::swap(&mut width, &mut height);
+            }
+        }
+    }
+
+    // Update the lines for hw.lcd.width and hw.lcd.height.
+    let mut updated_width = false;
+    let mut updated_height = false;
+    for line in lines.iter_mut() {
+        if line.starts_with("hw.lcd.width=") {
+            *line = format!("hw.lcd.width={}", width);
+            updated_width = true;
+        } else if line.starts_with("hw.lcd.height=") {
+            *line = format!("hw.lcd.height={}", height);
+            updated_height = true;
+        }
+    }
+
+    // If not found, push them (just in case).
+    if !updated_width {
+        lines.push(format!("hw.lcd.width={}", width));
+    }
+    if !updated_height {
+        lines.push(format!("hw.lcd.height={}", height));
+    }
+
+    let new_config = lines.join("\n");
+
+    std::fs::write(&config_path, new_config).map_err(|e| {
+        FailedToSetAvdOrientation::with_debug(
+            avd_name,
+            orientation.as_str(),
+            "failed to write changes",
+            &e,
+        )
+    })?;
+
     Ok(())
 }
