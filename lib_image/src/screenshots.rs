@@ -1,92 +1,16 @@
 extern crate magick_rust;
-use lib_core::{define_cli_error, CliError, CriticalError, IOError, Printer};
+use lib_core::{CliError, Printer};
 use magick_rust::{
     bindings::{DrawRoundRectangle, MagickBooleanType},
-    magick_wand_genesis, AlphaChannelOption, CompositeOperator, DrawingWand, FilterType,
-    GravityType, MagickWand, PixelWand,
+    AlphaChannelOption, CompositeOperator, DrawingWand, FilterType, GravityType, MagickWand,
+    PixelWand,
 };
-use std::{fs, path::Path, sync::Once};
+use std::path::Path;
 
-define_cli_error!(ImageMagickError, "ImageMagick command failed.");
-define_cli_error!(ImageProcessingError, "Error in image processing: {details}.", { details: &str });
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
-pub enum TextAlign {
-    Left,
-    Center,
-    Right,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Corner {
-    TopLeft,
-    TopRight,
-    BottomLeft,
-    BottomRight,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
-enum Corners {
-    All,
-    Only(Corner),
-    Except(Corner),
-    Top,
-    Bottom,
-    Left,
-    Right,
-}
-
-#[derive(Debug, Clone)]
-struct BoundingBox {
-    x: usize,
-    y: usize,
-    width: usize,
-    height: usize,
-}
-
-// Initialize MagickWand only once.
-static START: Once = Once::new();
-
-fn initialize_magick() {
-    START.call_once(|| {
-        magick_wand_genesis();
-    });
-}
-
-fn with_image<P>(
-    printer: &Printer,
-    input: P,
-    output: P,
-    op: impl FnOnce(&mut MagickWand) -> Result<(), CliError>,
-) -> Result<(), CliError>
-where
-    P: AsRef<Path>,
-{
-    initialize_magick();
-    let mut wand = MagickWand::new();
-    wand.read_image(
-        input
-            .as_ref()
-            .to_str()
-            .ok_or_else(|| CriticalError::new("invalid input path"))?,
-    )
-    .into_cli_res()?;
-    op(&mut wand)?;
-    if let Some(parent) = output.as_ref().parent() {
-        fs::create_dir_all(parent).map_err(|e| IOError::with_debug(&e))?;
-    }
-    wand.write_image(
-        output
-            .as_ref()
-            .to_str()
-            .ok_or_else(|| CriticalError::new("invalid output path"))?,
-    )
-    .into_cli_res()?;
-    printer.info(&format!("Image saved to {}.", output.as_ref().display()));
-    Ok(())
-}
+use crate::{
+    common::{black, color, transparent, white, with_image, write_to_tmp, IntoCliResult as _},
+    BoundingBox, Corner, Corners, ImageProcessingError, TextAlign,
+};
 
 pub fn process_screenshot_basic<P>(
     printer: &Printer,
@@ -463,61 +387,5 @@ impl Corners {
             Corners::Left => vec![Corner::TopLeft, Corner::BottomLeft],
             Corners::Right => vec![Corner::TopRight, Corner::BottomRight],
         }
-    }
-}
-
-fn write_to_tmp<C>(key: &str, bytes: C) -> Result<std::path::PathBuf, CliError>
-where
-    C: AsRef<[u8]>,
-{
-    let path = std::env::temp_dir().join(key);
-    fs::write(&path, bytes).map_err(|e| IOError::with_debug(&e))?;
-    Ok(path)
-}
-
-fn color(hex: &str) -> Result<PixelWand, CliError> {
-    let mut c = PixelWand::new();
-    c.set_color(hex).into_cli_res()?;
-    Ok(c)
-}
-
-fn black() -> PixelWand {
-    let mut c = PixelWand::new();
-    c.set_color("#000000")
-        .expect("Hard-coded color should be valid.");
-    c
-}
-
-fn white() -> PixelWand {
-    let mut c = PixelWand::new();
-    c.set_color("#FFFFFF")
-        .expect("Hard-coded color should be valid.");
-    c
-}
-
-fn transparent() -> PixelWand {
-    let mut c = PixelWand::new();
-    c.set_color("#FFFFFF")
-        .expect("Hard-coded color should be valid.");
-    c
-}
-
-trait IntoCliError {
-    fn into_cli_err(self) -> CliError;
-}
-
-impl IntoCliError for magick_rust::MagickError {
-    fn into_cli_err(self) -> CliError {
-        ImageMagickError::with_debug(&self)
-    }
-}
-
-trait IntoCliResult<T> {
-    fn into_cli_res(self) -> Result<T, CliError>;
-}
-
-impl<T> IntoCliResult<T> for Result<T, magick_rust::MagickError> {
-    fn into_cli_res(self) -> Result<T, CliError> {
-        self.map_err(|e| e.into_cli_err())
     }
 }
