@@ -2,8 +2,8 @@ extern crate magick_rust;
 use lib_core::{define_cli_error, CliError, CriticalError, IOError, Printer};
 use magick_rust::{
     bindings::{DrawRoundRectangle, MagickBooleanType},
-    magick_wand_genesis, CompositeOperator, DrawingWand, FilterType, GravityType, MagickWand,
-    PixelWand,
+    magick_wand_genesis, AlphaChannelOption, CompositeOperator, DrawingWand, FilterType,
+    GravityType, MagickWand, PixelWand,
 };
 use std::{fs, path::Path, sync::Once};
 
@@ -240,6 +240,8 @@ fn round_corner(
     let mut mask = MagickWand::new();
     mask.new_image(width, height, &transparent())
         .into_cli_res()?;
+    mask.set_image_alpha_channel(AlphaChannelOption::Transparent)
+        .into_cli_res()?;
     let (x, y) = match corner {
         Corner::TopLeft => (0.0, 0.0),
         Corner::TopRight => (width as f64 - mask_box_size, 0.0),
@@ -323,6 +325,9 @@ fn add_text(
     let mut text_image = MagickWand::new();
     text_image
         .new_image(fit_in_box.width, fit_in_box.height, &transparent())
+        .into_cli_res()?;
+    text_image
+        .set_image_alpha_channel(AlphaChannelOption::Transparent)
         .into_cli_res()?;
 
     let mut drawing_wand = DrawingWand::new();
