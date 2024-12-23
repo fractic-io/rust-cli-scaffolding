@@ -1,4 +1,6 @@
-use std::io::Write as _;
+use std::{io::Write as _, time::Duration};
+
+use tokio::{io::AsyncBufReadExt as _, time::timeout};
 
 use crate::{define_cli_error, CliError, IOError};
 
@@ -29,6 +31,32 @@ pub fn continue_after_enter() -> Result<(), CliError> {
         .read_line(&mut buffer)
         .map_err(|e| IOError::with_debug(&e))?;
     Ok(())
+}
+
+// Returns true if the user pressed Enter, false if the timeout expired.
+pub async fn continue_after_enter_with_timeout(t: Duration) -> Result<bool, CliError> {
+    print!("Press Enter to continue...");
+    std::io::stdout()
+        .flush()
+        .map_err(|e| IOError::with_debug(&e))?;
+
+    let mut stdin_reader = tokio::io::BufReader::new(tokio::io::stdin());
+    let mut buffer = String::new();
+
+    match timeout(t, stdin_reader.read_line(&mut buffer)).await {
+        Ok(Ok(_bytes_read)) => {
+            // The user pressed Enter (or typed something and pressed Enter).
+            Ok(true)
+        }
+        Ok(Err(e)) => {
+            // An I/O error occurred.
+            Err(IOError::with_debug(&e))
+        }
+        Err(_elapsed) => {
+            // The timeout expired.
+            Ok(false)
+        }
+    }
 }
 
 pub fn ask(prompt: &'static str) -> Result<String, CliError> {
