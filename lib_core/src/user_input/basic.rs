@@ -54,6 +54,7 @@ pub async fn continue_after_enter_with_timeout(t: Duration) -> Result<bool, CliE
         }
         Err(_elapsed) => {
             // The timeout expired.
+            println!();
             Ok(false)
         }
     }
