@@ -4,7 +4,7 @@ pub(crate) async fn config_from_profile(
     profile: impl Into<String>,
     region: impl Into<String>,
 ) -> SdkConfig {
-    aws_config::defaults(BehaviorVersion::v2024_03_28())
+    aws_config::defaults(BehaviorVersion::v2025_01_17())
         .region(Region::new(region.into()))
         .credentials_provider(
             ProfileFileCredentialsProvider::builder()
