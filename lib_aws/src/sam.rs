@@ -18,7 +18,7 @@ pub async fn sam_build(
         // It seems SAM isn't fully compatible with a custom CARGO_TARGET_DIR,
         // so we need to symlink the expected '/target' directory to our custom
         // location.
-        let expected_target_dir = project_dir.join("code").join("target");
+        let expected_target_dir = project_dir.join("target");
         rm_rf(&expected_target_dir)?;
         mkdir_p(&target_dir)?;
         ln_s(&target_dir, &expected_target_dir)?;
