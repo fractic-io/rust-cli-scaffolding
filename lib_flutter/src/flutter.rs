@@ -17,7 +17,7 @@ define_cli_error!(
     { expected: &str }
 );
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BuildFor {
     Android,
     AndroidPublish,
@@ -120,6 +120,12 @@ pub fn flutter_build(
     }
     if let Some(flavor) = flavor {
         args.extend(&["--flavor", flavor]);
+    }
+    if os == BuildFor::Android || os == BuildFor::AndroidPublish {
+        // Flutter still temporarily supports Android x86 builds, but this is
+        // not necessary except for very rare cases, so build for arm only:
+        args.push("--target-platform");
+        args.push("android-arm,android-arm64");
     }
     ex.execute_with_options(
         "flutter",
