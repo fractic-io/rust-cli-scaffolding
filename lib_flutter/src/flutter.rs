@@ -100,7 +100,13 @@ pub fn flutter_build(
         BuildFor::AndroidPublish => {
             pr.info("Building Android app bundle...");
             args.push("appbundle");
-            format!("build/app/outputs/bundle/release/app{flavor_str}-{output_path_suffix}.aab")
+            let release_dir = match flavor {
+                None => "release".to_string(),
+                Some(f) => format!("{f}Release"),
+            };
+            format!(
+                "build/app/outputs/bundle/{release_dir}/app{flavor_str}-{output_path_suffix}.aab"
+            )
         }
         BuildFor::Ios => {
             pr.info("Building iOS app...");
