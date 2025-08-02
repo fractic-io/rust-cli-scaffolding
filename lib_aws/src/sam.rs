@@ -41,9 +41,12 @@ pub async fn sam_build(
         // env.push(("CARGO_PROFILE_DEV_OPT_LEVEL".to_string(), "s".to_string()));
     }
 
+    // Call sam build with raised ulimit to avoid ProcessFdQuotaExceeded
+    // exception (common on M-type macs).
+    let shell_command = format!("ulimit -n 8192; exec sam build");
     ex.execute_with_options(
-        "sam",
-        &["build"],
+        "sh",
+        &["-c", &shell_command],
         IOMode::Attach,
         ExecuteOptions {
             dir: Some(project_dir),
