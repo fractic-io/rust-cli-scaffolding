@@ -275,10 +275,12 @@ pub fn ssh_attach<'a>(
 
     let command = match (attach_opt.inactivity_timeout, attach_opt.command) {
         (Some(timeout), Some(command)) => {
-            format!("timeout {}s {}", timeout.as_secs(), command)
+            format!("exec $SHELL -lic 'timeout {}s {}'", timeout.as_secs(), command)
         }
         (Some(timeout), None) => format!("export TMOUT={}; exec $SHELL -l", timeout.as_secs()),
-        (None, Some(command)) => command.to_string(),
+        (None, Some(command)) => {
+            format!("exec $SHELL -lic '{}'", command)
+        }
         (None, None) => "exec $SHELL -l".to_string(),
     };
 
