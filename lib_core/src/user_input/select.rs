@@ -3,6 +3,7 @@ use std::fmt;
 use crate::{define_cli_error, CliError};
 
 define_cli_error!(SelectionError, "Selection failed.");
+define_cli_error!(NoItemsError, "No {type_name} items to select from.", { type_name: &str });
 
 pub trait Selectable {
     type Item;
@@ -18,14 +19,22 @@ where
     type Item = T;
 
     fn select(self) -> Result<T, CliError> {
-        inquire::Select::new(get_type_name::<T>(), self.into_iter().collect())
+        let items = self.into_iter().collect::<Vec<_>>();
+        if items.is_empty() {
+            return Err(NoItemsError::new(get_type_name::<T>()).into());
+        }
+        inquire::Select::new(get_type_name::<T>(), items)
             .with_vim_mode(true)
             .prompt()
             .map_err(|e| SelectionError::with_debug(&e))
     }
 
     fn multi_select(self) -> Result<Vec<T>, CliError> {
-        inquire::MultiSelect::new(get_type_name::<T>(), self.into_iter().collect())
+        let items = self.into_iter().collect::<Vec<_>>();
+        if items.is_empty() {
+            return Err(NoItemsError::new(get_type_name::<T>()).into());
+        }
+        inquire::MultiSelect::new(get_type_name::<T>(), items)
             .with_vim_mode(true)
             .prompt()
             .map_err(|e| SelectionError::with_debug(&e))
