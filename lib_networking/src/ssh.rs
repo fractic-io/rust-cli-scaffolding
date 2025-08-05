@@ -1,5 +1,8 @@
 use lib_core::{define_cli_error, CliError, CriticalError, Executor, IOMode, InvalidUTF8, Printer};
+use nix::unistd;
 use openssh::{ForwardType, KnownHosts, Session, SessionBuilder};
+use std::fs;
+use std::os::unix::fs::MetadataExt as _;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -23,6 +26,11 @@ define_cli_error!(
     SshPortForwardError,
     "Failed to forward port {port}.",
     { port: u16 }
+);
+define_cli_error!(
+    PermissionError,
+    "User does not have write permissions to the local path: {path}.",
+    { path: &str }
 );
 
 #[derive(Debug)]
@@ -50,6 +58,28 @@ pub struct SshConnectOptions<'a> {
     pub identity_file: Option<&'a PathBuf>,
     pub known_hosts_file: Option<&'a PathBuf>,
     pub connect_timeout: Option<Duration>,
+}
+
+impl<'a> SshConnectOptions<'a> {
+    pub fn port_or_default(&self) -> u16 {
+        self.port.unwrap_or(22)
+    }
+
+    pub fn identity_file_or_default(&self) -> String {
+        self.identity_file
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "~/.ssh/id_rsa".to_string())
+    }
+
+    pub fn known_hosts_file_or_default(&self) -> String {
+        self.known_hosts_file
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "~/.ssh/known_hosts".to_string())
+    }
+
+    pub fn connect_timeout_or_default(&self) -> Duration {
+        self.connect_timeout.unwrap_or(Duration::from_secs(10))
+    }
 }
 
 #[derive(Debug, Default)]
@@ -121,17 +151,10 @@ pub async fn forward_port<'a>(
     }
 
     let connect_opt = connect_options.unwrap_or_default();
-    let ssh_port = connect_opt.port.unwrap_or(22).to_string();
-    let identity_file = connect_opt
-        .identity_file
-        .map_or_else(|| "~/.ssh/id_rsa".to_string(), |p| p.display().to_string());
-    let known_hosts_file = connect_opt.known_hosts_file.map_or_else(
-        || "~/.ssh/known_hosts".to_string(),
-        |p| p.display().to_string(),
-    );
-    let connect_timeout = connect_opt
-        .connect_timeout
-        .unwrap_or(Duration::from_secs(10));
+    let ssh_port = connect_opt.port_or_default().to_string();
+    let identity_file = connect_opt.identity_file_or_default();
+    let known_hosts_file = connect_opt.known_hosts_file_or_default();
+    let connect_timeout = connect_opt.connect_timeout_or_default();
 
     if force_close_existing {
         close_open_sockets_on_port(pr, forward_port)?;
@@ -217,17 +240,10 @@ pub async fn ssh_exec_command<'a>(
     args: &[&str],
 ) -> Result<String, CliError> {
     let connect_opt = connect_options.unwrap_or_default();
-    let port = connect_opt.port.unwrap_or(22).to_string();
-    let identity_file = connect_opt
-        .identity_file
-        .map_or_else(|| "~/.ssh/id_rsa".to_string(), |p| p.display().to_string());
-    let known_hosts_file = connect_opt.known_hosts_file.map_or_else(
-        || "~/.ssh/known_hosts".to_string(),
-        |p| p.display().to_string(),
-    );
-    let connect_timeout = connect_opt
-        .connect_timeout
-        .unwrap_or(Duration::from_secs(10));
+    let port = connect_opt.port_or_default().to_string();
+    let identity_file = connect_opt.identity_file_or_default();
+    let known_hosts_file = connect_opt.known_hosts_file_or_default();
+    let connect_timeout = connect_opt.connect_timeout_or_default();
 
     let session = SessionBuilder::default()
         .known_hosts_check(KnownHosts::Add)
@@ -258,24 +274,21 @@ pub fn ssh_attach<'a>(
     let connect_opt = connect_options.unwrap_or_default();
     let attach_opt = attach_options.unwrap_or_default();
 
-    let port = connect_opt.port.unwrap_or(22).to_string();
-    let identity_file = connect_opt
-        .identity_file
-        .map_or_else(|| "~/.ssh/id_rsa".to_string(), |p| p.display().to_string());
-    let known_hosts_file = connect_opt.known_hosts_file.map_or_else(
-        || "~/.ssh/known_hosts".to_string(),
-        |p| p.display().to_string(),
-    );
-    let connect_timeout = connect_opt
-        .connect_timeout
-        .unwrap_or(Duration::from_secs(10));
+    let port = connect_opt.port_or_default().to_string();
+    let identity_file = connect_opt.identity_file_or_default();
+    let known_hosts_file = connect_opt.known_hosts_file_or_default();
+    let connect_timeout = connect_opt.connect_timeout_or_default();
     let known_hosts_opt = format!("UserKnownHostsFile={}", known_hosts_file);
     let connect_timeout_opt = format!("ConnectTimeout={}", connect_timeout.as_secs());
     let address = format!("{}@{}", user, hostname);
 
     let command = match (attach_opt.inactivity_timeout, attach_opt.command) {
         (Some(timeout), Some(command)) => {
-            format!("exec $SHELL -lic 'timeout {}s {}'", timeout.as_secs(), command)
+            format!(
+                "exec $SHELL -lic 'timeout {}s {}'",
+                timeout.as_secs(),
+                command
+            )
         }
         (Some(timeout), None) => format!("export TMOUT={}; exec $SHELL -l", timeout.as_secs()),
         (None, Some(command)) => {
@@ -314,17 +327,10 @@ pub fn scp<'a>(
     destination: &str,
 ) -> Result<(), CliError> {
     let connect_opt = connect_options.unwrap_or_default();
-    let port = connect_opt.port.unwrap_or(22).to_string();
-    let identity_file = connect_opt
-        .identity_file
-        .map_or_else(|| "~/.ssh/id_rsa".to_string(), |p| p.display().to_string());
-    let known_hosts_file = connect_opt.known_hosts_file.map_or_else(
-        || "~/.ssh/known_hosts".to_string(),
-        |p| p.display().to_string(),
-    );
-    let connect_timeout = connect_opt
-        .connect_timeout
-        .unwrap_or(Duration::from_secs(10));
+    let port = connect_opt.port_or_default().to_string();
+    let identity_file = connect_opt.identity_file_or_default();
+    let known_hosts_file = connect_opt.known_hosts_file_or_default();
+    let connect_timeout = connect_opt.connect_timeout_or_default();
     let known_hosts_opt = format!("UserKnownHostsFile={}", known_hosts_file);
     let connect_timeout_opt = format!("ConnectTimeout={}", connect_timeout.as_secs());
 
@@ -404,4 +410,79 @@ pub fn scp_dir<'a>(
         files.iter().collect(),
         destination,
     )
+}
+
+pub fn sshfs<'a>(
+    ex: &mut Executor,
+    remote_path: &str,
+    local_path: &str,
+    connect_options: Option<SshConnectOptions<'a>>,
+    sudo_fallback: bool,
+) -> Result<(), CliError> {
+    let connect_opt = connect_options.unwrap_or_default();
+    let port = connect_opt.port_or_default().to_string();
+    let known_hosts_file = connect_opt.known_hosts_file_or_default();
+    let identity_file = connect_opt.identity_file_or_default();
+    let connect_timeout = connect_opt.connect_timeout_or_default();
+    let known_hosts_opt = format!("UserKnownHostsFile={}", known_hosts_file);
+    let identity_file_opt = format!("IdentityFile={}", identity_file);
+    let connect_timeout_opt = format!("ConnectTimeout={}", connect_timeout.as_secs());
+
+    let user_has_write_permissions = match fs::metadata(local_path) {
+        Ok(meta) => {
+            let uid = meta.uid();
+            let mode = meta.mode();
+            let mine = uid == unistd::geteuid().as_raw();
+            let write = mode & 0o200 != 0;
+            mine && write
+        }
+        _ => false,
+    };
+
+    let common_args = vec![
+        "-f", // Foreground.
+        "-p", // Change port.
+        &port,
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+        "-o",
+        &known_hosts_opt,
+        "-o",
+        &identity_file_opt,
+        "-o",
+        &connect_timeout_opt,
+        // Prevent .DS_Store & ._* files:
+        "-o",
+        "noappledouble",
+    ];
+
+    if user_has_write_permissions {
+        // Run as local user.
+        let mut args = vec![];
+        args.extend_from_slice(&common_args);
+        args.extend_from_slice(&["-o", "allow_root,idmap=user", remote_path, local_path]);
+        ex.execute_background("sshfs", &args, None)?;
+        Ok(())
+    } else if sudo_fallback {
+        // Run as root, but mount as local user.
+        let user_override = format!(
+            "uid={},gid={}",
+            unistd::geteuid().as_raw(),
+            unistd::getegid().as_raw()
+        );
+        let mut args = vec!["sshfs"];
+        args.extend_from_slice(&common_args);
+        args.extend_from_slice(&[
+            "-o",
+            "allow_other",
+            "-o",
+            &user_override,
+            remote_path,
+            local_path,
+        ]);
+        ex.execute_background("sudo", &args, None)?;
+        Ok(())
+    } else {
+        Err(PermissionError::new(local_path))
+    }
 }
