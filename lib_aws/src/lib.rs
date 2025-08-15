@@ -1,4 +1,5 @@
 mod account;
+mod acm;
 mod autoscaling;
 mod cargo_lambda;
 mod cloudformation;
@@ -16,6 +17,7 @@ mod shared_config;
 mod ssm;
 
 pub use account::*;
+pub use acm::*;
 pub use autoscaling::*;
 pub use cargo_lambda::*;
 pub use cloudformation::*;
