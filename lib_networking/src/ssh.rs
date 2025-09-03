@@ -439,22 +439,26 @@ pub fn sshfs<'a>(
         _ => false,
     };
 
-    let common_args = vec![
-        "-f", // Foreground.
-        "-p", // Change port.
-        &port,
-        "-o",
-        "StrictHostKeyChecking=accept-new",
-        "-o",
-        &known_hosts_opt,
-        "-o",
-        &identity_file_opt,
-        "-o",
-        &connect_timeout_opt,
-        // Prevent .DS_Store & ._* files:
-        "-o",
-        "noappledouble",
-    ];
+    let common_args = {
+        let mut args = vec![
+            "-f", // Foreground.
+            "-p", // Change port.
+            &port,
+            "-o",
+            "StrictHostKeyChecking=accept-new",
+            "-o",
+            &known_hosts_opt,
+            "-o",
+            &identity_file_opt,
+            "-o",
+            &connect_timeout_opt,
+        ];
+        if cfg!(target_os = "macos") {
+            // Prevent .DS_Store & ._* files:
+            args.extend_from_slice(&["-o", "noappledouble"]);
+        }
+        args
+    };
 
     if user_has_write_permissions {
         // Run as local user.
