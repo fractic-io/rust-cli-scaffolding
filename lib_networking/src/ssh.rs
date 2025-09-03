@@ -464,7 +464,7 @@ pub fn sshfs<'a>(
         // Run as local user.
         let mut args = vec![];
         args.extend_from_slice(&common_args);
-        args.extend_from_slice(&["-o", "allow_root,idmap=user", remote_path, local_path]);
+        args.extend_from_slice(&["-o", "idmap=user", remote_path, local_path]);
         ex.execute_background("sshfs", &args, None)?;
         Ok(())
     } else if sudo_fallback {
