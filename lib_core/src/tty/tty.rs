@@ -35,7 +35,10 @@ impl Tty {
 
     pub fn cache_sudo(&self) -> Result<(), CliError> {
         if !self.executor.sudo_is_cached() {
-            self.printer.caution_box("This script requires sudo. Enter your password to cache credentials for the duration of the script.");
+            self.printer.caution_box(
+                "This script requires sudo. Enter your password to cache credentials for the \
+                 duration of the script.",
+            );
             self.executor.cache_sudo()?;
             self.printer.info("Credentials cached.\n");
         }
@@ -107,7 +110,13 @@ impl Tty {
                     .info(&format!("Elapsed: {}.", print_elapsed(self.start_time)));
             }
             Err(e) => {
-                eprintln!("{e}");
+                let msg = e.to_string();
+                let head = match msg.char_indices().nth(60) {
+                    Some((i, _)) => &format!("{}...", &msg[..i]),
+                    None => &msg,
+                };
+                eprintln!("{msg}");
+                self.printer.notify("Ctrl", &format!("Error: {head}"));
                 std::process::exit(1)
             }
         }
