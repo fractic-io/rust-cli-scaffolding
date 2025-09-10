@@ -113,12 +113,12 @@ impl Tty {
                 eprintln!("{e}");
                 let head = {
                     let m = e.message();
-                    match m.char_indices().nth(60) {
+                    match m.char_indices().nth(120) {
                         Some((i, _)) => &format!("{}...", &m[..i]),
                         None => &m,
                     }
                 };
-                self.printer.notify("Ctrl", &format!("Error: {head}"));
+                self.printer.notify("Ctrl Failure", head);
                 std::process::exit(1)
             }
         }
