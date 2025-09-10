@@ -5,6 +5,7 @@ use std::{
 };
 
 use colored::{ColoredString, Colorize as _};
+use notify_rust::Notification;
 
 #[derive(Debug, Clone)]
 pub struct Printer;
@@ -74,6 +75,11 @@ impl Printer {
 
     pub fn success(&self, message: &str) {
         println!("{}", message.green());
+    }
+
+    /// Best effort. Does not fail if notifications are not supported.
+    pub fn notify(&self, title: &str, message: &str) {
+        let _ = Notification::new().summary(title).body(message).show();
     }
 }
 
