@@ -110,12 +110,14 @@ impl Tty {
                     .info(&format!("Elapsed: {}.", print_elapsed(self.start_time)));
             }
             Err(e) => {
-                let msg = e.to_string();
-                let head = match msg.char_indices().nth(60) {
-                    Some((i, _)) => &format!("{}...", &msg[..i]),
-                    None => &msg,
+                eprintln!("{e}");
+                let head = {
+                    let m = e.message();
+                    match m.char_indices().nth(60) {
+                        Some((i, _)) => &format!("{}...", &m[..i]),
+                        None => &m,
+                    }
                 };
-                eprintln!("{msg}");
                 self.printer.notify("Ctrl", &format!("Error: {head}"));
                 std::process::exit(1)
             }
