@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+chrono = "0.4.42"
 hickory-client = { version = "^0.24.1", default-features = false }
 lib_core = { path = "../lib_core" }
 netstat2 = "^0.11.0"

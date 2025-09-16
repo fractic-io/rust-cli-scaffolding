@@ -1,3 +1,4 @@
+use chrono::{Datelike, Local, NaiveDate, NaiveTime};
 use lib_core::{define_cli_error, CliError, CriticalError, Executor, IOMode, InvalidUTF8, Printer};
 use nix::unistd;
 use openssh::{ForwardType, KnownHosts, Session, SessionBuilder};
@@ -86,6 +87,16 @@ impl<'a> SshConnectOptions<'a> {
 pub struct SshAttachOptions<'a> {
     pub command: Option<&'a str>,
     pub inactivity_timeout: Option<Duration>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum SshCacheTtl {
+    /// Cache identity for a specific duration.
+    For(Duration),
+    /// Cache identity until a given local time-of-day.
+    Until(NaiveTime),
+    /// Cache identity until 4AM.
+    UntilEOD,
 }
 
 /// Returns the IP address the hostname resolves to once it becomes available.
@@ -191,8 +202,37 @@ pub fn ssh_cache_identity(
     pr: &Printer,
     ex: &Executor,
     identity_file: &PathBuf,
-    ttl: Duration,
+    ttl: SshCacheTtl,
 ) -> Result<(), CliError> {
+    fn duration_until_time_of_day(target: NaiveTime) -> Duration {
+        let now = Local::now();
+        let today_date = NaiveDate::from_ymd_opt(now.year(), now.month(), now.day())
+            .expect("valid current date");
+        let today_target = today_date.and_time(target);
+        let now_naive = now.naive_local();
+
+        let delta = if today_target > now_naive {
+            today_target - now_naive
+        } else {
+            let tomorrow_date = today_date.succ_opt().expect("valid next day");
+            let tomorrow_target = tomorrow_date.and_time(target);
+            tomorrow_target - now_naive
+        };
+
+        // Ensure non-zero positive duration.
+        delta
+            .to_std()
+            .unwrap_or_else(|_| Duration::from_secs(1))
+            .max(Duration::from_secs(1))
+    }
+
+    let ttl = match ttl {
+        SshCacheTtl::For(d) => d,
+        SshCacheTtl::Until(time_of_day) => duration_until_time_of_day(time_of_day),
+        SshCacheTtl::UntilEOD => duration_until_time_of_day(
+            NaiveTime::from_hms_opt(4, 0, 0).expect("hardcoded NaiveTime should be valid"),
+        ),
+    };
     let agent_init = ex.execute("ssh-agent", &["-s"], IOMode::Silent)?;
     ex.execute("sh", &["-c", &agent_init], IOMode::Silent)?;
 
