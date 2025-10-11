@@ -188,7 +188,7 @@ pub async fn forward_port<'a>(
                 forward_port,
             ),
             (
-                std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
+                std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
                 forward_port,
             ),
         )
