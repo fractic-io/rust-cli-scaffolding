@@ -188,7 +188,12 @@ pub async fn forward_port<'a>(
                 forward_port,
             ),
             (
-                std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
+                // For the target of the forwarding, explicitly use localhost
+                // instead of UNSPECIFIED. Using UNSPECIFIED here can cause
+                // the underlying ssh client to interpret the host as "none",
+                // which breaks subsequent forwarding requests if a previous
+                // mux/master session crashed.
+                std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
                 forward_port,
             ),
         )
