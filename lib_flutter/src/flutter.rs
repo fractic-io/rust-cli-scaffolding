@@ -201,10 +201,10 @@ pub fn flutter_build(
             |original| {
                 let mut lines: Vec<String> =
                     original.lines().map(|s| s.to_string() + "\n").collect();
-                lines = override_config_key(lines, "DEVELOPMENT_TEAM", xc.team_id);
-                lines = override_config_key(lines, "CODE_SIGN_STYLE", "Manual");
-                lines = override_config_key(lines, "CODE_SIGN_IDENTITY", xc.code_sign_identity);
-                lines = override_config_key(
+                lines = override_xcconfig_key(lines, "DEVELOPMENT_TEAM", xc.team_id);
+                lines = override_xcconfig_key(lines, "CODE_SIGN_STYLE", "Manual");
+                lines = override_xcconfig_key(lines, "CODE_SIGN_IDENTITY", xc.code_sign_identity);
+                lines = override_xcconfig_key(
                     lines,
                     "PROVISIONING_PROFILE_SPECIFIER",
                     xc.provisioning_profile_specifier,
@@ -282,7 +282,7 @@ pub fn flutter_install(
 // Helpers.
 // ---------------------------------------------------------------------------
 
-fn override_config_key(mut lines: Vec<String>, key: &str, value: &str) -> Vec<String> {
+fn override_xcconfig_key(mut lines: Vec<String>, key: &str, value: &str) -> Vec<String> {
     let mut replaced = false;
     let key_len = key.len();
     for line in lines.iter_mut() {
