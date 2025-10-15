@@ -4,7 +4,7 @@ use tempfile::NamedTempFile;
 
 use crate::{define_cli_error, CliError, Printer};
 
-use super::{ln_s, rm};
+use super::{ln_s, mv, rm};
 
 define_cli_error!(TemporaryFileError, "Temporary file error: {details}.", { details: &str });
 
@@ -73,5 +73,69 @@ where
     let result = op();
     rm(path).map_err(|e| TemporaryFileError::with_debug("failed to remove symlink", &e))?;
     drop(temp_file);
+    result
+}
+
+/// Temporarily edit a file by applying `edit` to its String contents while running `op`.
+///
+/// The original file is backed up to a sibling file with a ".bak" suffix (e.g.,
+/// "file.txt" -> "file.txt.bak"). After `op` completes (whether it succeeds or
+/// fails), the original file is restored from the backup. If writing the edited
+/// contents fails, the function attempts to restore the original immediately and
+/// returns an error.
+pub fn with_tmp_edits_to_file<F, R, E>(
+    pr: &Printer,
+    path: &Path,
+    edit: E,
+    op: F,
+) -> Result<R, CliError>
+where
+    F: FnOnce() -> Result<R, CliError>,
+    E: FnOnce(String) -> String,
+{
+    pr.info(&format!("Temporarily editing file at {}.", path.display()));
+
+    if !path.exists() {
+        return Err(TemporaryFileError::new("file does not exist"));
+    }
+
+    // Read original contents.
+    let original = std::fs::read_to_string(path)
+        .map_err(|e| TemporaryFileError::with_debug("failed to read original file", &e))?;
+
+    // Compute edited contents.
+    let edited = edit(original);
+
+    // Compute backup path as "<filename>.bak" in the same directory.
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| TemporaryFileError::new("invalid path; no file name"))?;
+    let backup_name = format!("{}.bak", file_name.to_string_lossy());
+    let backup_path = path.with_file_name(backup_name);
+
+    // Move original to backup.
+    mv(path, &backup_path)
+        .map_err(|e| TemporaryFileError::with_debug("failed to back up original file", &e))?;
+
+    // Write edited contents; on failure, attempt immediate restore.
+    if let Err(e) = std::fs::write(path, edited) {
+        let _ = mv(&backup_path, path);
+        return Err(TemporaryFileError::with_debug(
+            "failed to write edited file",
+            &e,
+        ));
+    }
+
+    // Run operation while edited file is in place.
+    let result = op();
+
+    // Always attempt to restore original from backup.
+    if let Err(e) = mv(&backup_path, path) {
+        return Err(TemporaryFileError::with_debug(
+            "failed to restore original file from backup",
+            &e,
+        ));
+    }
+
     result
 }
