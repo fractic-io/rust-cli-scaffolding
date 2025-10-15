@@ -16,12 +16,18 @@ define_cli_error!(
     "Expected build to be at '{expected}', but it could not be found.",
     { expected: &str }
 );
+define_cli_error!(
+    FlutterInvalidBuildOptions,
+    "Invalid build options: {details}.",
+    { details: &str }
+);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BuildFor {
     Android,
     AndroidPublish,
     Ios,
+    IosPublish,
     Web { base_href: String },
 }
 
@@ -30,6 +36,12 @@ pub enum BuildType {
     Debug,
     Profile,
     Release,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct BuildOptions<'a> {
+    pub flavor: Option<&'a str>,
+    pub export_options_plist: Option<&'a Path>,
 }
 
 pub fn run_flutter_integration_test(
@@ -82,10 +94,11 @@ pub fn flutter_build(
     dir: &Path,
     os: BuildFor,
     build_type: BuildType,
-    flavor: Option<&str>,
+    options: Option<BuildOptions>,
 ) -> Result<PathBuf, CliError> {
+    let options = options.unwrap_or_default();
     let mut args = vec!["build"];
-    let flavor_str = flavor.map_or("".to_string(), |f| format!("-{f}"));
+    let flavor_str = options.flavor.map_or("".to_string(), |f| format!("-{f}"));
     let output_path_suffix = match build_type {
         BuildType::Debug => "debug",
         BuildType::Profile => "profile",
@@ -100,7 +113,7 @@ pub fn flutter_build(
         BuildFor::AndroidPublish => {
             pr.info("Building Android app bundle...");
             args.push("appbundle");
-            let release_dir = match flavor {
+            let release_dir = match options.flavor {
                 None => "release".to_string(),
                 Some(f) => format!("{f}Release"),
             };
@@ -109,13 +122,34 @@ pub fn flutter_build(
             )
         }
         BuildFor::Ios => {
-            pr.info("Building iOS app...");
-            args.push("ios");
-            "build/ios/iphoneos/Runner.app".to_string()
+            pr.info("Building iOS IPA (development)...");
+            args.push("ipa");
+            if let Some(plist) = options.export_options_plist {
+                args.push("--export-options-plist");
+                args.push(plist.to_str().ok_or_else(|| {
+                    FlutterInvalidBuildOptions::new("export options plist path is not valid")
+                })?);
+            } else {
+                args.extend(["--export-method", "development"]);
+            }
+            "build/ios/ipa/Runner.ipa".to_string()
+        }
+        BuildFor::IosPublish => {
+            pr.info("Building iOS IPA (app-store)...");
+            args.push("ipa");
+            if let Some(plist) = options.export_options_plist {
+                args.push("--export-options-plist");
+                args.push(plist.to_str().ok_or_else(|| {
+                    FlutterInvalidBuildOptions::new("export options plist path is not valid")
+                })?);
+            } else {
+                args.extend(["--export-method", "app-store"]);
+            }
+            "build/ios/ipa/Runner.ipa".to_string()
         }
         BuildFor::Web { ref base_href } => {
             pr.info("Building web app...");
-            args.extend(&["web", "--base-href", base_href]);
+            args.extend(["web", "--base-href", base_href]);
             "build/web".to_string()
         }
     };
@@ -124,8 +158,8 @@ pub fn flutter_build(
         BuildType::Profile => args.push("--profile"),
         BuildType::Release => args.push("--release"),
     }
-    if let Some(flavor) = flavor {
-        args.extend(&["--flavor", flavor]);
+    if let Some(flavor) = options.flavor {
+        args.extend(["--flavor", flavor]);
     }
     if os == BuildFor::Android || os == BuildFor::AndroidPublish {
         // Flutter still temporarily supports Android x86 builds, but this is
@@ -152,16 +186,17 @@ pub fn flutter_install(
     dir: &Path,
     os: BuildFor,
     build_type: BuildType,
-    flavor: Option<&str>,
+    options: Option<BuildOptions>,
 ) -> Result<(), CliError> {
-    let output_path = flutter_build(pr, ex, dir, os.clone(), build_type, flavor)?;
+    let output_path = flutter_build(pr, ex, dir, os.clone(), build_type, options.clone())?;
 
     pr.info(&format!(
         "Installing '{}'...",
         output_path.to_string_lossy()
     ));
+    let options = options.unwrap_or_default();
     let mut install_args = vec!["install"];
-    if let Some(flavor) = flavor {
+    if let Some(flavor) = options.flavor {
         install_args.extend(&["--flavor", flavor]);
     }
     match build_type {
@@ -190,15 +225,12 @@ pub fn flutter_install(
                 )
             })?;
         }
-        BuildFor::Ios => {
-            ex.execute_with_options(
-                "flutter",
-                &install_args,
+        BuildFor::Ios | BuildFor::IosPublish => {
+            // Install with linux-friendly ideviceinstaller.
+            ex.execute(
+                "ideviceinstaller",
+                &["install", &output_path.to_string_lossy()],
                 IOMode::StreamOutput,
-                ExecuteOptions {
-                    dir: Some(dir),
-                    ..Default::default()
-                },
             )?;
         }
         _ => return Err(FlutterBuildTypeDoesntSupportInstall::new(&os)),
