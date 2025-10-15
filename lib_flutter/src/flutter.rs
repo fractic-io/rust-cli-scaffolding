@@ -4,7 +4,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use lib_core::{define_cli_error, CliError, ExecuteOptions, Executor, IOMode, Printer};
+use lib_core::{
+    define_cli_error, with_tmp_edits_to_file, CliError, ExecuteOptions, Executor, IOMode, Printer,
+};
 
 define_cli_error!(
     FlutterBuildTypeDoesntSupportInstall,
@@ -42,6 +44,14 @@ pub enum BuildType {
 pub struct BuildOptions<'a> {
     pub flavor: Option<&'a str>,
     pub export_options_plist: Option<&'a Path>,
+    pub xcode_config: Option<XcodeConfig<'a>>, // iOS-only: temporary overrides for xcconfig
+}
+
+#[derive(Debug, Clone)]
+pub struct XcodeConfig<'a> {
+    pub team_id: &'a str,
+    pub code_sign_identity: &'a str,
+    pub provisioning_profile_specifier: &'a str,
 }
 
 pub fn run_flutter_integration_test(
@@ -167,15 +177,45 @@ pub fn flutter_build(
         args.push("--target-platform");
         args.push("android-arm,android-arm64");
     }
-    ex.execute_with_options(
-        "flutter",
-        &args,
-        IOMode::StreamOutput,
-        ExecuteOptions {
-            dir: Some(dir),
-            ..Default::default()
-        },
-    )?;
+    let run_flutter_build = || {
+        ex.execute_with_options(
+            "flutter",
+            &args,
+            IOMode::StreamOutput,
+            ExecuteOptions {
+                dir: Some(dir),
+                ..Default::default()
+            },
+        )
+    };
+    if (os == BuildFor::Ios || os == BuildFor::IosPublish) && options.xcode_config.is_some() {
+        let xc = options.xcode_config.as_ref().unwrap();
+        let xcconfig_file_name = match build_type {
+            BuildType::Debug => "Debug.xcconfig",
+            BuildType::Profile | BuildType::Release => "Release.xcconfig",
+        };
+        let xcconfig_path = dir.join("ios").join("Flutter").join(xcconfig_file_name);
+        with_tmp_edits_to_file(
+            pr,
+            &xcconfig_path,
+            |original| {
+                let mut lines: Vec<String> =
+                    original.lines().map(|s| s.to_string() + "\n").collect();
+                lines = override_config_key(lines, "DEVELOPMENT_TEAM", xc.team_id);
+                lines = override_config_key(lines, "CODE_SIGN_STYLE", "Manual");
+                lines = override_config_key(lines, "CODE_SIGN_IDENTITY", xc.code_sign_identity);
+                lines = override_config_key(
+                    lines,
+                    "PROVISIONING_PROFILE_SPECIFIER",
+                    xc.provisioning_profile_specifier,
+                );
+                lines.into_iter().collect()
+            },
+            run_flutter_build,
+        )?;
+    } else {
+        run_flutter_build()?;
+    }
     fs::canonicalize(dir.join(&output_path))
         .map_err(|e| FlutterUnexpectedBuildOutputPath::with_debug(&output_path, &e))
 }
@@ -237,4 +277,31 @@ pub fn flutter_install(
     }
 
     Ok(())
+}
+
+// Helpers.
+// ---------------------------------------------------------------------------
+
+fn override_config_key(mut lines: Vec<String>, key: &str, value: &str) -> Vec<String> {
+    let mut replaced = false;
+    let key_len = key.len();
+    for line in lines.iter_mut() {
+        let trimmed_start = line.trim_start();
+        if trimmed_start.starts_with(key) {
+            let rest = &trimmed_start[key_len..];
+            if rest.trim_start().starts_with('=') {
+                *line = format!("{}={}", key, value);
+                replaced = true;
+            }
+        }
+    }
+    if !replaced {
+        if let Some(last) = lines.last() {
+            if !last.ends_with('\n') {
+                lines.push(String::from("\n"));
+            }
+        }
+        lines.push(format!("{}={}\n", key, value));
+    }
+    lines
 }
