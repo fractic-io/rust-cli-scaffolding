@@ -5,8 +5,10 @@ use std::{
 };
 
 use lib_core::{
-    define_cli_error, with_tmp_edits_to_file, CliError, ExecuteOptions, Executor, IOMode, Printer,
+    define_cli_error, with_tmp_edits_to_file, with_written_to_tmp_file_at_path, CliError,
+    ExecuteOptions, Executor, IOError, IOMode, Printer,
 };
+use regex::Regex;
 
 define_cli_error!(
     FlutterBuildTypeDoesntSupportInstall,
@@ -21,6 +23,11 @@ define_cli_error!(
 define_cli_error!(
     FlutterInvalidBuildOptions,
     "Invalid build options: {details}.",
+    { details: &str }
+);
+define_cli_error!(
+    InvalidIosProvisioningProfile,
+    "Invalid iOS provisioning profile: {details}.",
     { details: &str }
 );
 
@@ -43,58 +50,14 @@ pub enum BuildType {
 #[derive(Debug, Clone, Default)]
 pub struct BuildOptions<'a> {
     pub flavor: Option<&'a str>,
-    pub export_options_plist: Option<&'a Path>,
-    pub xcode_config: Option<XcodeConfig<'a>>, // iOS-only: temporary overrides for xcconfig
+    pub xcode_signing_override: Option<XcodeSigningOverride<'a>>,
 }
 
 #[derive(Debug, Clone)]
-pub struct XcodeConfig<'a> {
+pub struct XcodeSigningOverride<'a> {
     pub team_id: &'a str,
-    pub code_sign_identity: &'a str,
-    pub provisioning_profile_specifier: &'a str,
-}
-
-pub fn run_flutter_integration_test(
-    ex: &Executor,
-    dir: &Path,
-    adb_id: &str,
-    driver: &str,
-    target: &str,
-    flavor: Option<&str>,
-    dart_define: Option<HashMap<&str, &str>>,
-) -> Result<(), CliError> {
-    let mut args = vec![
-        "drive",
-        "--profile",
-        "--driver",
-        driver,
-        "--target",
-        target,
-        "--no-pub",
-        "--device-id",
-        adb_id,
-    ];
-    if let Some(flavor) = flavor {
-        args.extend(&["--flavor", flavor]);
-    }
-    let setexprs: Vec<String> = dart_define
-        .unwrap_or_default()
-        .into_iter()
-        .map(|(key, value)| format!("--dart-define={}={}", key, value))
-        .collect();
-    args.extend(setexprs.iter().map(|s| s.as_str()));
-
-    ex.execute_with_options(
-        "flutter",
-        &args,
-        IOMode::StreamOutput,
-        ExecuteOptions {
-            dir: Some(dir),
-            ..Default::default()
-        },
-    )?;
-
-    Ok(())
+    pub bundle_id: &'a str,
+    pub provisioning_profile: &'a [u8],
 }
 
 /// Returns the path to the generated output.
@@ -106,14 +69,21 @@ pub fn flutter_build(
     build_type: BuildType,
     options: Option<BuildOptions>,
 ) -> Result<PathBuf, CliError> {
+    // Constants.
+    // ==
     let options = options.unwrap_or_default();
-    let mut args = vec!["build"];
     let flavor_str = options.flavor.map_or("".to_string(), |f| format!("-{f}"));
     let output_path_suffix = match build_type {
         BuildType::Debug => "debug",
         BuildType::Profile => "profile",
         BuildType::Release => "release",
     };
+    let export_options_dest = dir.join("ios").join("ExportOptions.plist");
+    let export_options_dest_str = export_options_dest.to_string_lossy().to_string();
+
+    // Prepare flutter build arguments.
+    // ==
+    let mut args = vec!["build"];
     let output_path = match os {
         BuildFor::Android => {
             pr.info("Building Android apk...");
@@ -134,11 +104,9 @@ pub fn flutter_build(
         BuildFor::Ios => {
             pr.info("Building iOS IPA (development)...");
             args.push("ipa");
-            if let Some(plist) = options.export_options_plist {
-                args.push("--export-options-plist");
-                args.push(plist.to_str().ok_or_else(|| {
-                    FlutterInvalidBuildOptions::new("export options plist path is not valid")
-                })?);
+            if options.xcode_signing_override.is_some() {
+                // (Export method will be dictated by the plist we generate later.)
+                args.extend(["--export-options-plist", &export_options_dest_str]);
             } else {
                 args.extend(["--export-method", "development"]);
             }
@@ -147,11 +115,9 @@ pub fn flutter_build(
         BuildFor::IosPublish => {
             pr.info("Building iOS IPA (app-store)...");
             args.push("ipa");
-            if let Some(plist) = options.export_options_plist {
-                args.push("--export-options-plist");
-                args.push(plist.to_str().ok_or_else(|| {
-                    FlutterInvalidBuildOptions::new("export options plist path is not valid")
-                })?);
+            if options.xcode_signing_override.is_some() {
+                // (Export method will be dictated by the plist we generate later.)
+                args.extend(["--export-options-plist", &export_options_dest_str]);
             } else {
                 args.extend(["--export-method", "app-store"]);
             }
@@ -177,7 +143,10 @@ pub fn flutter_build(
         args.push("--target-platform");
         args.push("android-arm,android-arm64");
     }
-    let run_flutter_build = || {
+
+    // Prepare main build function, and add optional override wrappers for iOS.
+    // ==
+    let build_fn = || {
         ex.execute_with_options(
             "flutter",
             &args,
@@ -188,34 +157,77 @@ pub fn flutter_build(
             },
         )
     };
-    if (os == BuildFor::Ios || os == BuildFor::IosPublish) && options.xcode_config.is_some() {
-        let xc = options.xcode_config.as_ref().unwrap();
-        let xcconfig_file_name = match build_type {
-            BuildType::Debug => "Debug.xcconfig",
-            BuildType::Profile | BuildType::Release => "Release.xcconfig",
+    if let Some(xc) = options.xcode_signing_override {
+        let for_app_store = match os {
+            BuildFor::Ios => false,
+            BuildFor::IosPublish => true,
+            _ => {
+                return Err(FlutterInvalidBuildOptions::new(
+                    "XcodeSigningOverride is only supported for iOS builds",
+                ))
+            }
         };
-        let xcconfig_path = dir.join("ios").join("Flutter").join(xcconfig_file_name);
-        with_tmp_edits_to_file(
-            pr,
-            &xcconfig_path,
-            |original| {
+        // Wrapper 1: Write provisioning profile.
+        // --
+        let home_dir = std::env::var("HOME").map_err(|e| IOError::with_debug(&e))?;
+        let profiles_dir = PathBuf::from(&home_dir)
+            .join("Library")
+            .join("MobileDevice")
+            .join("Provisioning Profiles");
+        std::fs::create_dir_all(&profiles_dir).map_err(|e| IOError::with_debug(&e))?;
+        let profile_dest = profiles_dir.join("tmp_cli_build.mobileprovision");
+        let profile_name = extract_profile_name(xc.provisioning_profile)?;
+        with_written_to_tmp_file_at_path(pr, xc.provisioning_profile, &profile_dest, || {
+            // Wrapper 2: Override Xcode config (used by archive step).
+            // --
+            let xcconfig_path = dir.join("ios").join("Flutter").join(match build_type {
+                BuildType::Debug => "Debug.xcconfig",
+                BuildType::Profile | BuildType::Release => "Release.xcconfig",
+            });
+            let xconfig_patch_fn = |original: String| {
                 let mut lines: Vec<String> =
                     original.lines().map(|s| s.to_string() + "\n").collect();
                 lines = override_xcconfig_key(lines, "DEVELOPMENT_TEAM", xc.team_id);
                 lines = override_xcconfig_key(lines, "CODE_SIGN_STYLE", "Manual");
-                lines = override_xcconfig_key(lines, "CODE_SIGN_IDENTITY", xc.code_sign_identity);
+                lines =
+                    override_xcconfig_key(lines, "PROVISIONING_PROFILE_SPECIFIER", &profile_name);
                 lines = override_xcconfig_key(
                     lines,
-                    "PROVISIONING_PROFILE_SPECIFIER",
-                    xc.provisioning_profile_specifier,
+                    "CODE_SIGN_IDENTITY",
+                    match for_app_store {
+                        true => "Apple Distribution",
+                        false => "Apple Development",
+                    },
                 );
                 lines.into_iter().collect()
-            },
-            run_flutter_build,
-        )?;
+            };
+            with_tmp_edits_to_file(pr, &xcconfig_path, xconfig_patch_fn, || {
+                // Wrapper 3: Override export options (used by export step).
+                // --
+                let export_plist_path = dir.join("ios").join("ExportOptions.plist");
+                let export_plist_content = build_export_plist_content(
+                    match for_app_store {
+                        true => "app-store",
+                        false => "development",
+                    },
+                    xc.bundle_id,
+                    &profile_name,
+                    xc.team_id,
+                );
+                with_written_to_tmp_file_at_path(
+                    pr,
+                    export_plist_content,
+                    &export_plist_path,
+                    || build_fn(),
+                )
+            })
+        })?;
     } else {
-        run_flutter_build()?;
+        build_fn()?;
     }
+
+    // Validate and return path to completed build.
+    // ==
     fs::canonicalize(dir.join(&output_path))
         .map_err(|e| FlutterUnexpectedBuildOutputPath::with_debug(&output_path, &e))
 }
@@ -279,6 +291,49 @@ pub fn flutter_install(
     Ok(())
 }
 
+pub fn run_flutter_integration_test(
+    ex: &Executor,
+    dir: &Path,
+    adb_id: &str,
+    driver: &str,
+    target: &str,
+    flavor: Option<&str>,
+    dart_define: Option<HashMap<&str, &str>>,
+) -> Result<(), CliError> {
+    let mut args = vec![
+        "drive",
+        "--profile",
+        "--driver",
+        driver,
+        "--target",
+        target,
+        "--no-pub",
+        "--device-id",
+        adb_id,
+    ];
+    if let Some(flavor) = flavor {
+        args.extend(&["--flavor", flavor]);
+    }
+    let setexprs: Vec<String> = dart_define
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(key, value)| format!("--dart-define={}={}", key, value))
+        .collect();
+    args.extend(setexprs.iter().map(|s| s.as_str()));
+
+    ex.execute_with_options(
+        "flutter",
+        &args,
+        IOMode::StreamOutput,
+        ExecuteOptions {
+            dir: Some(dir),
+            ..Default::default()
+        },
+    )?;
+
+    Ok(())
+}
+
 // Helpers.
 // ---------------------------------------------------------------------------
 
@@ -304,4 +359,57 @@ fn override_xcconfig_key(mut lines: Vec<String>, key: &str, value: &str) -> Vec<
         lines.push(format!("{}={}\n", key, value));
     }
     lines
+}
+
+fn build_export_plist_content(
+    method: &str,
+    bundle_id: &str,
+    profile_name: &str,
+    team_id: &str,
+) -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>method</key>
+    <string>{method}</string>
+    <key>compileBitcode</key>
+    <false/>
+    <key>manageAppVersionAndBuildNumber</key>
+    <false/>
+    <key>signingStyle</key>
+    <string>manual</string>
+    <key>provisioningProfiles</key>
+    <dict>
+        <key>{bundle_id}</key>
+        <string>{profile_name}</string>
+    </dict>
+    <key>stripSwiftSymbols</key>
+    <true/>
+    <key>teamID</key>
+    <string>{team_id}</string>
+    <key>thinning</key>
+    <string>&lt;none&gt;</string>
+</dict>
+</plist>
+"#
+    )
+}
+
+fn extract_profile_name(profile_bytes: &[u8]) -> Result<String, CliError> {
+    let bytes_str = String::from_utf8_lossy(profile_bytes);
+
+    // Try to parse 'Name' key.
+    let re = Regex::new(r#"<key>Name</key>\s*<string>([^<]+)</string>"#)
+        .map_err(|e| InvalidIosProvisioningProfile::with_debug("could not compile regex", &e))?;
+
+    if let Some(caps) = re.captures(&bytes_str) {
+        if let Some(name) = caps.get(1) {
+            return Ok(name.as_str().to_string());
+        }
+    }
+    Err(InvalidIosProvisioningProfile::new(
+        "Could not extract profile name with regex",
+    ))
 }
