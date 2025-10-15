@@ -30,6 +30,11 @@ define_cli_error!(
     "Invalid iOS provisioning profile: {details}.",
     { details: &str }
 );
+define_cli_error!(
+    UnknownIosBundleName,
+    "Could not extract iOS bundle name from ios/Runner/Info.plist: {details}.",
+    { details: &str }
+);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BuildFor {
@@ -110,7 +115,7 @@ pub fn flutter_build(
             } else {
                 args.extend(["--export-method", "development"]);
             }
-            "build/ios/ipa/Runner.ipa".to_string()
+            format!("build/ios/ipa/{}.ipa", extract_ios_bundle_name(dir)?)
         }
         BuildFor::IosPublish => {
             pr.info("Building iOS IPA (app-store)...");
@@ -121,7 +126,7 @@ pub fn flutter_build(
             } else {
                 args.extend(["--export-method", "app-store"]);
             }
-            "build/ios/ipa/Runner.ipa".to_string()
+            format!("build/ios/ipa/{}.ipa", extract_ios_bundle_name(dir)?)
         }
         BuildFor::Web { ref base_href } => {
             pr.info("Building web app...");
@@ -410,6 +415,25 @@ fn extract_profile_uuid(profile_bytes: &[u8]) -> Result<String, CliError> {
         }
     }
     Err(InvalidIosProvisioningProfile::new(
-        "Could not extract profile name with regex",
+        "could not find 'UUID' key",
+    ))
+}
+
+fn extract_ios_bundle_name(dir: &Path) -> Result<String, CliError> {
+    let plist_path = dir.join("ios").join("Runner").join("Info.plist");
+    let contents = fs::read_to_string(&plist_path)
+        .map_err(|e| UnknownIosBundleName::with_debug("failed to read file", &e))?;
+
+    // Try to parse 'CFBundleName' key.
+    let re = Regex::new(r#"<key>CFBundleName</key>\s*<string>([^<]+)</string>"#)
+        .map_err(|e| UnknownIosBundleName::with_debug("could not compile regex", &e))?;
+
+    if let Some(caps) = re.captures(&contents) {
+        if let Some(name) = caps.get(1) {
+            return Ok(name.as_str().to_string());
+        }
+    }
+    Err(UnknownIosBundleName::new(
+        "could not find 'CFBundleName' key",
     ))
 }
