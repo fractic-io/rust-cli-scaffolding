@@ -176,7 +176,7 @@ pub fn flutter_build(
             .join("Provisioning Profiles");
         std::fs::create_dir_all(&profiles_dir).map_err(|e| IOError::with_debug(&e))?;
         let profile_dest = profiles_dir.join("tmp_cli_build.mobileprovision");
-        let profile_name = extract_profile_name(xc.provisioning_profile)?;
+        let profile_uuid = extract_profile_uuid(xc.provisioning_profile)?;
         with_written_to_tmp_file_at_path(pr, xc.provisioning_profile, &profile_dest, || {
             // Wrapper 2: Override Xcode config (used by archive step).
             // --
@@ -190,7 +190,7 @@ pub fn flutter_build(
                 lines = override_xcconfig_key(lines, "DEVELOPMENT_TEAM", xc.team_id);
                 lines = override_xcconfig_key(lines, "CODE_SIGN_STYLE", "Manual");
                 lines =
-                    override_xcconfig_key(lines, "PROVISIONING_PROFILE_SPECIFIER", &profile_name);
+                    override_xcconfig_key(lines, "PROVISIONING_PROFILE_SPECIFIER", &profile_uuid);
                 lines = override_xcconfig_key(
                     lines,
                     "CODE_SIGN_IDENTITY",
@@ -211,7 +211,7 @@ pub fn flutter_build(
                         false => "development",
                     },
                     xc.bundle_id,
-                    &profile_name,
+                    &profile_uuid,
                     xc.team_id,
                 );
                 with_written_to_tmp_file_at_path(
@@ -364,7 +364,7 @@ fn override_xcconfig_key(mut lines: Vec<String>, key: &str, value: &str) -> Vec<
 fn build_export_plist_content(
     method: &str,
     bundle_id: &str,
-    profile_name: &str,
+    profile_uuid: &str,
     team_id: &str,
 ) -> String {
     format!(
@@ -383,7 +383,7 @@ fn build_export_plist_content(
     <key>provisioningProfiles</key>
     <dict>
         <key>{bundle_id}</key>
-        <string>{profile_name}</string>
+        <string>{profile_uuid}</string>
     </dict>
     <key>stripSwiftSymbols</key>
     <true/>
@@ -397,11 +397,11 @@ fn build_export_plist_content(
     )
 }
 
-fn extract_profile_name(profile_bytes: &[u8]) -> Result<String, CliError> {
+fn extract_profile_uuid(profile_bytes: &[u8]) -> Result<String, CliError> {
     let bytes_str = String::from_utf8_lossy(profile_bytes);
 
-    // Try to parse 'Name' key.
-    let re = Regex::new(r#"<key>Name</key>\s*<string>([^<]+)</string>"#)
+    // Try to parse 'UUID' key.
+    let re = Regex::new(r#"<key>UUID</key>\s*<string>([^<]+)</string>"#)
         .map_err(|e| InvalidIosProvisioningProfile::with_debug("could not compile regex", &e))?;
 
     if let Some(caps) = re.captures(&bytes_str) {
