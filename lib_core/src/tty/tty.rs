@@ -45,6 +45,13 @@ impl Tty {
         Ok(())
     }
 
+    pub fn with_user_preferences<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&mut UserPreferences) -> R,
+    {
+        f(&mut self.user_preferences)
+    }
+
     pub fn in_init_section<'a, T, F, Fut>(
         &'a mut self,
         f: F,
