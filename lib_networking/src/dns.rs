@@ -1,4 +1,4 @@
-use std::str::FromStr as _;
+use std::{str::FromStr as _, time::Duration};
 
 use hickory_client::{
     client::{AsyncClient, ClientHandle as _},
@@ -26,6 +26,7 @@ define_cli_error!(
 );
 
 const NAME_SERVER: &'static str = "8.8.8.8:53";
+const QUERY_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub async fn dns_query_a_record(address: &str) -> Result<String, CliError> {
     if address == "localhost" {
@@ -36,7 +37,7 @@ pub async fn dns_query_a_record(address: &str) -> Result<String, CliError> {
         TcpClientStream::<AsyncIoTokioAsStd<TcpStream>>::new(NAME_SERVER.parse().map_err(|e| {
             DnsConnectionError::with_debug("could not parse name server address", &e)
         })?);
-    let (mut client, bg) = AsyncClient::new(stream, sender, None)
+    let (mut client, bg) = AsyncClient::with_timeout(stream, sender, QUERY_TIMEOUT, None)
         .await
         .map_err(|e| DnsConnectionError::with_debug("could not establish connection", &e))?;
     tokio::spawn(bg);
@@ -69,7 +70,7 @@ pub async fn dns_query_cname_record(address: &str) -> Result<String, CliError> {
         TcpClientStream::<AsyncIoTokioAsStd<TcpStream>>::new(NAME_SERVER.parse().map_err(|e| {
             DnsConnectionError::with_debug("could not parse name server address", &e)
         })?);
-    let (mut client, bg) = AsyncClient::new(stream, sender, None)
+    let (mut client, bg) = AsyncClient::with_timeout(stream, sender, QUERY_TIMEOUT, None)
         .await
         .map_err(|e| DnsConnectionError::with_debug("could not establish connection", &e))?;
     tokio::spawn(bg);
