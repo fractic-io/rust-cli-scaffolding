@@ -93,6 +93,7 @@ impl Executor {
         }
     }
 
+    #[track_caller]
     pub fn execute(
         &self,
         command: &str,
@@ -102,6 +103,7 @@ impl Executor {
         self.execute_with_options(command, args, io_mode, ExecuteOptions::default())
     }
 
+    #[track_caller]
     pub fn execute_with_options(
         &self,
         command: &str,
