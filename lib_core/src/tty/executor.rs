@@ -20,6 +20,11 @@ define_cli_error!(
     "[{exit_status}] Background command failed.",
     { exit_status: ExitStatus }
 );
+define_cli_error!(
+    TtyRequiredCommandMissing,
+    "Required command not found: {command}.",
+    { command: &str }
+);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IOMode {
@@ -53,18 +58,53 @@ impl Executor {
         }
     }
 
+    pub fn has_command(&self, program: &str) -> bool {
+        let program = program.trim();
+        if program.is_empty() {
+            return false;
+        }
+
+        #[cfg(windows)]
+        {
+            std::process::Command::new("cmd")
+                .args(["/C", "where", "/Q"])
+                .arg(program)
+                .status()
+                .map(|status| status.success())
+                .unwrap_or(false)
+        }
+
+        #[cfg(not(windows))]
+        {
+            std::process::Command::new("sh")
+                .args(["-c", "command -v -- \"$1\" >/dev/null 2>&1", "sh"])
+                .arg(program)
+                .status()
+                .map(|status| status.success())
+                .unwrap_or(false)
+        }
+    }
+
+    pub fn require_command(&self, program: &str) -> Result<(), CliError> {
+        if self.has_command(program) {
+            Ok(())
+        } else {
+            Err(TtyRequiredCommandMissing::new(program))
+        }
+    }
+
     pub fn execute(
         &self,
-        program: &str,
+        command: &str,
         args: &[&str],
         io_mode: IOMode,
     ) -> Result<String, CliError> {
-        self.execute_with_options(program, args, io_mode, ExecuteOptions::default())
+        self.execute_with_options(command, args, io_mode, ExecuteOptions::default())
     }
 
     pub fn execute_with_options(
         &self,
-        program: &str,
+        command: &str,
         args: &[&str],
         io_mode: IOMode,
         options: ExecuteOptions,
@@ -73,7 +113,7 @@ impl Executor {
             Some(p) => fs::canonicalize(p).map_err(|e| IOError::with_debug(&e))?,
             None => std::env::current_dir().map_err(|e| IOError::with_debug(&e))?,
         };
-        let mut child = std::process::Command::new(program)
+        let mut child = std::process::Command::new(command)
             .args(args)
             .current_dir(abs_dir)
             .envs(options.env.unwrap_or_default())
@@ -146,13 +186,13 @@ impl Executor {
 
     pub fn execute_background(
         &mut self,
-        program: &str,
+        command: &str,
         args: &[&str],
         dir: Option<&str>,
     ) -> Result<(), CliError> {
         let abs_dir = fs::canonicalize(dir.unwrap_or(".")).map_err(|e| IOError::with_debug(&e))?;
         self.background_processes.push(
-            std::process::Command::new(program)
+            std::process::Command::new(command)
                 .args(args)
                 .current_dir(abs_dir)
                 .stdout(std::process::Stdio::null())
