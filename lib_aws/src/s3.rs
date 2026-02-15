@@ -84,6 +84,29 @@ where
     Ok(())
 }
 
+pub async fn create_folder_placeholder(
+    pr: &Printer,
+    profile: &str,
+    region: &str,
+    bucket: &str,
+    key: &str,
+) -> Result<(), CliError> {
+    let client = Client::new(&config_from_profile(profile, region).await);
+    client
+        .put_object()
+        .bucket(bucket)
+        .key(key)
+        .body(aws_sdk_s3::primitives::ByteStream::from_static(&[]))
+        .send()
+        .await
+        .map_err(|e| S3Error::with_debug(&e))?;
+    pr.info(&format!(
+        "Created folder placeholder at 's3://{}/{}'.",
+        bucket, key
+    ));
+    Ok(())
+}
+
 /// Returns the number of files uploaded.
 pub async fn upload_dir_to_s3<P>(
     pr: &Printer,
