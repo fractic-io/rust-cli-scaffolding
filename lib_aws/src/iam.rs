@@ -12,6 +12,10 @@ define_cli_error!(
     "User '{username}' already has {key_count} access keys and key rotation mode is None.",
     { username: &str, key_count: usize }
 );
+define_cli_error!(
+    IamAccessKeyNullAfterCreate,
+    "Access key returned from AWS IAM was null."
+);
 
 pub struct IamAccessKeyCredentials {
     pub access_key_id: String,
@@ -91,11 +95,11 @@ pub async fn create_access_key_for_user(
         .await
         .map_err(|e| IamError::with_debug(&e))?
         .access_key
-        .ok_or_else(|| IamError::new())?;
+        .ok_or_else(|| IamAccessKeyNullAfterCreate::new())?;
 
     Ok(IamAccessKeyCredentials {
-        access_key_id: key.access_key_id().to_string(),
-        secret_access_key: key.secret_access_key().to_string(),
+        access_key_id: key.access_key_id,
+        secret_access_key: key.secret_access_key,
     })
 }
 
