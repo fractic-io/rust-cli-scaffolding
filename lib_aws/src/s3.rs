@@ -242,18 +242,28 @@ where
 }
 
 pub async fn s3_download_objects(
+    pr: &Printer,
     profile: &str,
     region: &str,
     bucket: &str,
     objects: Vec<(String, std::path::PathBuf)>,
     max_concurrency: usize,
 ) -> Result<(), CliError> {
-    let max_concurrency = max_concurrency.max(1);
+    if objects.is_empty() {
+        return Ok(());
+    }
+
+    pr.info(&format!(
+        "Downloading {} object{} from bucket '{}'...",
+        objects.len(),
+        if objects.len() == 1 { "" } else { "s" },
+        bucket
+    ));
 
     stream::iter(objects.into_iter().map(|(key, local_path)| async move {
         s3_download_object(profile, region, bucket, &key, &local_path).await
     }))
-    .buffer_unordered(max_concurrency)
+    .buffer_unordered(max_concurrency.max(1))
     .try_collect::<Vec<_>>()
     .await?;
 
@@ -280,19 +290,29 @@ pub async fn s3_delete_object(
 }
 
 pub async fn s3_delete_objects(
+    pr: &Printer,
     profile: &str,
     region: &str,
     bucket: &str,
     keys: Vec<String>,
     max_concurrency: usize,
 ) -> Result<(), CliError> {
-    let max_concurrency = max_concurrency.max(1);
+    if keys.is_empty() {
+        return Ok(());
+    }
+
+    pr.info(&format!(
+        "Deleting {} object{} from bucket '{}'...",
+        keys.len(),
+        if keys.len() == 1 { "" } else { "s" },
+        bucket
+    ));
 
     stream::iter(
         keys.into_iter()
             .map(|key| async move { s3_delete_object(profile, region, bucket, &key).await }),
     )
-    .buffer_unordered(max_concurrency)
+    .buffer_unordered(max_concurrency.max(1))
     .try_collect::<Vec<_>>()
     .await?;
 

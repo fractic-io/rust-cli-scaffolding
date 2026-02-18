@@ -239,13 +239,25 @@ pub fn scp_download_file<'a>(
 }
 
 pub async fn scp_download_files<'a>(
+    pr: &Printer,
     user: &str,
     hostname: &str,
     connect_options: Option<SshConnectOptions<'a>>,
     files: Vec<(String, String)>,
     max_concurrency: usize,
 ) -> Result<(), CliError> {
-    let max_concurrency = max_concurrency.max(1);
+    if files.is_empty() {
+        return Ok(());
+    }
+
+    pr.info(&format!(
+        "Downloading {} file{} via SCP from '{}@{}'...",
+        files.len(),
+        if files.len() == 1 { "" } else { "s" },
+        user,
+        hostname
+    ));
+
     let connect_opt = connect_options.unwrap_or_default();
     let port = connect_opt.port_or_default().to_string();
     let identity_file = connect_opt.identity_file_or_default();
@@ -287,7 +299,7 @@ pub async fn scp_download_files<'a>(
             }
         }
     }))
-    .buffer_unordered(max_concurrency)
+    .buffer_unordered(max_concurrency.max(1))
     .try_collect::<Vec<_>>()
     .await?;
 
@@ -313,6 +325,7 @@ pub async fn scp_delete_file<'a>(
 }
 
 pub async fn scp_delete_files<'a>(
+    pr: &Printer,
     user: &str,
     hostname: &str,
     connect_options: Option<SshConnectOptions<'a>>,
@@ -323,14 +336,20 @@ pub async fn scp_delete_files<'a>(
         return Ok(());
     }
 
-    let max_concurrency = max_concurrency.max(1);
+    pr.info(&format!(
+        "Deleting {} file{} via SCP from '{}@{}'...",
+        paths.len(),
+        if paths.len() == 1 { "" } else { "s" },
+        user,
+        hostname
+    ));
 
     stream::iter(
         paths.into_iter().map(|path| async move {
             scp_delete_file(user, hostname, connect_options, &path).await
         }),
     )
-    .buffer_unordered(max_concurrency)
+    .buffer_unordered(max_concurrency.max(1))
     .try_collect::<Vec<_>>()
     .await?;
 
