@@ -33,6 +33,18 @@ define_cli_error!(
     "User does not have write permissions to the local path: {path}.",
     { path: &str }
 );
+define_cli_error!(
+    SshRemoteFileInfoParseError,
+    "Failed to parse remote file info line: '{line}'.",
+    { line: &str }
+);
+
+#[derive(Debug, Clone)]
+pub struct SshRemoteFileInfo {
+    pub path: String,
+    pub size: u64,
+    pub modified_epoch_sec: i64,
+}
 
 #[derive(Debug)]
 pub enum PortForward {
@@ -450,6 +462,125 @@ pub fn scp_dir<'a>(
         files.iter().collect(),
         destination,
     )
+}
+
+pub async fn ssh_list_files_recursive<'a>(
+    user: &str,
+    hostname: &str,
+    connect_options: Option<SshConnectOptions<'a>>,
+    path: &str,
+) -> Result<Vec<SshRemoteFileInfo>, CliError> {
+    let output = ssh_exec_command(
+        user,
+        hostname,
+        connect_options,
+        "sh",
+        &[
+            "-lc",
+            "p=\"$1\"; \
+             if [ -d \"$p\" ]; then \
+               find \"$p\" -type f -printf '%T@|%s|%p\\n'; \
+             elif [ -f \"$p\" ]; then \
+               stat -c '%Y|%s|%n' \"$p\"; \
+             fi",
+            "sh",
+            path,
+        ],
+    )
+    .await?;
+
+    output
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| {
+            let mut parts = line.splitn(3, '|');
+            let modified_raw = parts
+                .next()
+                .ok_or_else(|| SshRemoteFileInfoParseError::new(line))?;
+            let size_raw = parts
+                .next()
+                .ok_or_else(|| SshRemoteFileInfoParseError::new(line))?;
+            let path_raw = parts
+                .next()
+                .ok_or_else(|| SshRemoteFileInfoParseError::new(line))?;
+
+            let modified_epoch_sec = if modified_raw.contains('.') {
+                modified_raw
+                    .split('.')
+                    .next()
+                    .unwrap_or_default()
+                    .parse::<i64>()
+                    .map_err(|e| SshRemoteFileInfoParseError::with_debug(line, &e))?
+            } else {
+                modified_raw
+                    .parse::<i64>()
+                    .map_err(|e| SshRemoteFileInfoParseError::with_debug(line, &e))?
+            };
+
+            let size = size_raw
+                .parse::<u64>()
+                .map_err(|e| SshRemoteFileInfoParseError::with_debug(line, &e))?;
+
+            Ok(SshRemoteFileInfo {
+                path: path_raw.to_string(),
+                size,
+                modified_epoch_sec,
+            })
+        })
+        .collect()
+}
+
+pub fn scp_download_file<'a>(
+    ex: &Executor,
+    user: &str,
+    hostname: &str,
+    connect_options: Option<SshConnectOptions<'a>>,
+    remote_path: &str,
+    local_path: &str,
+) -> Result<(), CliError> {
+    let connect_opt = connect_options.unwrap_or_default();
+    let port = connect_opt.port_or_default().to_string();
+    let identity_file = connect_opt.identity_file_or_default();
+    let known_hosts_file = connect_opt.known_hosts_file_or_default();
+    let connect_timeout = connect_opt.connect_timeout_or_default();
+    let known_hosts_opt = format!("UserKnownHostsFile={}", known_hosts_file);
+    let connect_timeout_opt = format!("ConnectTimeout={}", connect_timeout.as_secs());
+    let source = format!("{}@{}:{}", user, hostname, remote_path);
+
+    let args = vec![
+        "-P",
+        &port,
+        "-i",
+        &identity_file,
+        "-p",
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+        "-o",
+        &known_hosts_opt,
+        "-o",
+        &connect_timeout_opt,
+        &source,
+        local_path,
+    ];
+    ex.execute("scp", &args, IOMode::Silent)?;
+    Ok(())
+}
+
+pub async fn ssh_delete_files<'a>(
+    user: &str,
+    hostname: &str,
+    connect_options: Option<SshConnectOptions<'a>>,
+    paths: &[String],
+) -> Result<(), CliError> {
+    if paths.is_empty() {
+        return Ok(());
+    }
+
+    let mut args = vec!["-lc", "for p in \"$@\"; do rm -f -- \"$p\"; done", "sh"];
+    let mut path_args = paths.iter().map(|p| p.as_str()).collect::<Vec<_>>();
+    args.append(&mut path_args);
+    let _ = ssh_exec_command(user, hostname, connect_options, "sh", &args).await?;
+    Ok(())
 }
 
 pub fn sshfs<'a>(
