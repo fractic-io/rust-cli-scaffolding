@@ -36,8 +36,7 @@ pub async fn cargo_lambda_build_to_s3(
             dir: Some(crate_dir),
             ..Default::default()
         },
-    )
-    .await?;
+    )?;
     pr.info("Uploading zip files to S3...");
     s3_upload_dir(pr, profile, region, bucket, key_prefix, target_dir.path()).await?;
     Ok(())

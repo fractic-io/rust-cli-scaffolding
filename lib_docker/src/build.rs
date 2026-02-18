@@ -91,7 +91,7 @@ pub async fn build_docker_image_with_bullard<P: AsRef<Path>>(
     Ok(())
 }
 
-pub async fn build_docker_image_with_command_line<P: AsRef<Path>>(
+pub fn build_docker_image_with_command_line<P: AsRef<Path>>(
     pr: &Printer,
     ex: &Executor,
     build_dir: P,
@@ -115,7 +115,6 @@ pub async fn build_docker_image_with_command_line<P: AsRef<Path>>(
             ..Default::default()
         },
     )
-    .await
     .map_err(|e| DockerBuildError::with_debug(&e))?;
     pr.info("Image built successfully.");
     Ok(())
