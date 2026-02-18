@@ -3,7 +3,7 @@ use std::path::Path;
 use lib_core::{CliError, CriticalError, ExecuteOptions, Executor, IOMode, Printer};
 use tempfile::tempdir;
 
-use crate::upload_dir_to_s3;
+use crate::s3_upload_dir;
 
 pub async fn cargo_lambda_build_to_s3(
     pr: &Printer,
@@ -38,6 +38,6 @@ pub async fn cargo_lambda_build_to_s3(
         },
     )?;
     pr.info("Uploading zip files to S3...");
-    upload_dir_to_s3(pr, profile, region, bucket, key_prefix, target_dir.path()).await?;
+    s3_upload_dir(pr, profile, region, bucket, key_prefix, target_dir.path()).await?;
     Ok(())
 }

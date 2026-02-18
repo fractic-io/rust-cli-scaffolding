@@ -1,7 +1,9 @@
 use std::path::Path;
 
 use aws_sdk_cloudformation::error::SdkError;
-use aws_sdk_s3::{operation::head_bucket::HeadBucketError, types::CreateBucketConfiguration, Client};
+use aws_sdk_s3::{
+    operation::head_bucket::HeadBucketError, types::CreateBucketConfiguration, Client,
+};
 use chrono::{DateTime, Utc};
 use futures_util::stream::{self, StreamExt as _, TryStreamExt as _};
 use lib_core::{define_cli_error, CliError, IOError, Printer};
@@ -20,7 +22,7 @@ pub struct S3ObjectMetadata {
     pub last_modified: Option<DateTime<Utc>>,
 }
 
-pub async fn bucket_exists(profile: &str, region: &str, bucket: &str) -> Result<bool, CliError> {
+pub async fn s3_bucket_exists(profile: &str, region: &str, bucket: &str) -> Result<bool, CliError> {
     let client = Client::new(&config_from_profile(profile, region).await);
     let response = client.head_bucket().bucket(bucket).send().await;
     match response {
@@ -31,13 +33,13 @@ pub async fn bucket_exists(profile: &str, region: &str, bucket: &str) -> Result<
 }
 
 /// Returns true if new bucket was created.
-pub async fn create_bucket_if_not_exists(
+pub async fn s3_create_bucket_if_not_exists(
     pr: &Printer,
     profile: &str,
     region: &str,
     bucket: &str,
 ) -> Result<bool, CliError> {
-    if !bucket_exists(profile, region, bucket).await? {
+    if !s3_bucket_exists(profile, region, bucket).await? {
         pr.info(&format!("Creating S3 bucket '{}'...", bucket));
         let client = Client::new(&config_from_profile(profile, region).await);
         client
@@ -59,7 +61,25 @@ pub async fn create_bucket_if_not_exists(
     }
 }
 
-pub async fn upload_file_to_s3<P>(
+/// Deterministically derives a globally unique yet obsure bucket name. Since
+/// it's deterministic it can be used to re-use the same bucket between
+/// independent runs.
+pub fn s3_unique_bucket_name(
+    sso_session: &str,
+    account_id: &str,
+    region: &str,
+    prefix: &str,
+    project_id: &str,
+) -> String {
+    // This should be globally unique, so we must take care to incorporate the
+    // company name and account ID.
+    let deterministic_hash = hex::encode(Sha256::digest(
+        format!("{sso_session}.{account_id}.{region}.{project_id}").as_bytes(),
+    ));
+    format!("{prefix}-{}", &deterministic_hash[..32])
+}
+
+pub async fn s3_upload_file<P>(
     pr: &Printer,
     profile: &str,
     region: &str,
@@ -92,7 +112,60 @@ where
     Ok(())
 }
 
-pub async fn list_objects_with_prefix(
+/// Returns the number of files uploaded.
+pub async fn s3_upload_dir<P>(
+    pr: &Printer,
+    profile: &str,
+    region: &str,
+    bucket: &str,
+    key_prefix: &str,
+    dir_path: P,
+) -> Result<usize, CliError>
+where
+    P: AsRef<Path>,
+{
+    if !dir_path.as_ref().exists() {
+        return Err(S3InvalidUpload::new("directory does not exist"));
+    }
+    if !dir_path.as_ref().is_dir() {
+        return Err(S3InvalidUpload::new("path is not a directory"));
+    }
+    let client = Client::new(&config_from_profile(profile, region).await);
+    let mut count = 0;
+    for entry in walkdir::WalkDir::new(&dir_path) {
+        let entry = entry.map_err(|e| IOError::with_debug(&e))?;
+        if entry.file_type().is_file() {
+            let key = format!(
+                "{}/{}",
+                key_prefix,
+                entry
+                    .path()
+                    .strip_prefix(dir_path.as_ref())
+                    .unwrap()
+                    .to_string_lossy()
+            );
+            let body = aws_sdk_s3::primitives::ByteStream::from_path(entry.path())
+                .await
+                .map_err(|e| IOError::with_debug(&e))?;
+            client
+                .put_object()
+                .bucket(bucket)
+                .key(&key)
+                .body(body)
+                .send()
+                .await
+                .map_err(|e| S3Error::with_debug(&e))?;
+            count += 1;
+        }
+    }
+    pr.info(&format!(
+        "Uploaded {} file(s) to 's3://{}/{}/'.",
+        count, bucket, key_prefix
+    ));
+    Ok(count)
+}
+
+pub async fn s3_list(
     profile: &str,
     region: &str,
     bucket: &str,
@@ -106,7 +179,11 @@ pub async fn list_objects_with_prefix(
         let response = client
             .list_objects_v2()
             .bucket(bucket)
-            .prefix(prefix)
+            .set_prefix(if prefix.is_empty() {
+                None
+            } else {
+                Some(prefix.to_string())
+            })
             .set_continuation_token(continuation_token.clone())
             .send()
             .await
@@ -137,7 +214,7 @@ pub async fn list_objects_with_prefix(
     Ok(objects)
 }
 
-pub async fn s3_download_object_to_path<P>(
+pub async fn s3_download_object<P>(
     profile: &str,
     region: &str,
     bucket: &str,
@@ -169,7 +246,7 @@ where
     Ok(())
 }
 
-pub async fn s3_download_objects_to_path(
+pub async fn s3_download_objects(
     profile: &str,
     region: &str,
     bucket: &str,
@@ -258,7 +335,7 @@ pub async fn s3_delete_objects(
     Ok(())
 }
 
-pub async fn create_folder_placeholder(
+pub async fn s3_create_folder_placeholder(
     pr: &Printer,
     profile: &str,
     region: &str,
@@ -279,73 +356,4 @@ pub async fn create_folder_placeholder(
         bucket, key
     ));
     Ok(())
-}
-
-/// Returns the number of files uploaded.
-pub async fn upload_dir_to_s3<P>(
-    pr: &Printer,
-    profile: &str,
-    region: &str,
-    bucket: &str,
-    key_prefix: &str,
-    dir_path: P,
-) -> Result<usize, CliError>
-where
-    P: AsRef<Path>,
-{
-    if !dir_path.as_ref().exists() {
-        return Err(S3InvalidUpload::new("directory does not exist"));
-    }
-    if !dir_path.as_ref().is_dir() {
-        return Err(S3InvalidUpload::new("path is not a directory"));
-    }
-    let client = Client::new(&config_from_profile(profile, region).await);
-    let mut count = 0;
-    for entry in walkdir::WalkDir::new(&dir_path) {
-        let entry = entry.map_err(|e| IOError::with_debug(&e))?;
-        if entry.file_type().is_file() {
-            let key = format!(
-                "{}/{}",
-                key_prefix,
-                entry
-                    .path()
-                    .strip_prefix(dir_path.as_ref())
-                    .unwrap()
-                    .to_string_lossy()
-            );
-            let body = aws_sdk_s3::primitives::ByteStream::from_path(entry.path())
-                .await
-                .map_err(|e| IOError::with_debug(&e))?;
-            client
-                .put_object()
-                .bucket(bucket)
-                .key(&key)
-                .body(body)
-                .send()
-                .await
-                .map_err(|e| S3Error::with_debug(&e))?;
-            count += 1;
-        }
-    }
-    pr.info(&format!(
-        "Uploaded {} file(s) to 's3://{}/{}/'.",
-        count, bucket, key_prefix
-    ));
-    Ok(count)
-}
-
-/// Deterministically derives a unique bucket name.
-pub fn derive_unique_bucket_name(
-    sso_session: &str,
-    account_id: &str,
-    region: &str,
-    prefix: &str,
-    project_id: &str,
-) -> String {
-    // This should be globally unique, so we must take care to incorporate the
-    // company name and account ID.
-    let deterministic_hash = hex::encode(Sha256::digest(
-        format!("{sso_session}.{account_id}.{region}.{project_id}").as_bytes(),
-    ));
-    format!("{prefix}-{}", &deterministic_hash[..32])
 }
