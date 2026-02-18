@@ -29,7 +29,7 @@ define_cli_error!(
     { port: u16 }
 );
 define_cli_error!(
-    PermissionError,
+    SshfsPermissionError,
     "User does not have write permissions to the local path: {path}.",
     { path: &str }
 );
@@ -357,101 +357,6 @@ pub fn ssh_attach<'a>(
     Ok(())
 }
 
-pub fn scp<'a>(
-    pr: &Printer,
-    ex: &Executor,
-    user: &str,
-    hostname: &str,
-    connect_options: Option<SshConnectOptions<'a>>,
-    files: Vec<&PathBuf>,
-    destination: &str,
-) -> Result<(), CliError> {
-    let connect_opt = connect_options.unwrap_or_default();
-    let port = connect_opt.port_or_default().to_string();
-    let identity_file = connect_opt.identity_file_or_default();
-    let known_hosts_file = connect_opt.known_hosts_file_or_default();
-    let connect_timeout = connect_opt.connect_timeout_or_default();
-    let known_hosts_opt = format!("UserKnownHostsFile={}", known_hosts_file);
-    let connect_timeout_opt = format!("ConnectTimeout={}", connect_timeout.as_secs());
-
-    let scp_sources = files
-        .iter()
-        .map(|f| {
-            f.to_str().ok_or_else(|| {
-                CriticalError::new(&format!(
-                    "failed to convert path '{}' to string.",
-                    f.display()
-                ))
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let scp_dest = format!("{}@{}:{}", user, hostname, destination);
-
-    match scp_sources.len() {
-        0 => {
-            pr.warn("Skipping scp command (no files to copy)...");
-            return Ok(());
-        }
-        1 => {
-            pr.info(&format!(
-                "Copying '{}' to '{}'...",
-                scp_sources[0], scp_dest
-            ));
-        }
-        _ => {
-            pr.info(&format!(
-                "Copying {} files to '{}'...",
-                scp_sources.len(),
-                scp_dest
-            ));
-        }
-    }
-
-    let mut args = vec![
-        "-P",
-        &port,
-        "-i",
-        &identity_file,
-        "-o",
-        "StrictHostKeyChecking=accept-new",
-        "-o",
-        &known_hosts_opt,
-        "-o",
-        &connect_timeout_opt,
-    ];
-    args.extend(scp_sources);
-    args.push(&scp_dest);
-
-    ex.execute("scp", &args, IOMode::Silent)?;
-    Ok(())
-}
-
-pub fn scp_dir<'a>(
-    pr: &Printer,
-    ex: &Executor,
-    user: &str,
-    hostname: &str,
-    connect_options: Option<SshConnectOptions<'a>>,
-    dir: &PathBuf,
-    destination: &str,
-) -> Result<(), CliError> {
-    let files = walkdir::WalkDir::new(dir)
-        .into_iter()
-        .filter_map(|entry| entry.ok())
-        .filter(|entry| entry.file_type().is_file())
-        .map(|entry| entry.path().to_path_buf())
-        .collect::<Vec<_>>();
-    scp(
-        pr,
-        ex,
-        user,
-        hostname,
-        connect_options,
-        files.iter().collect(),
-        destination,
-    )
-}
-
 pub fn sshfs<'a>(
     ex: &mut Executor,
     remote_path: &str,
@@ -527,6 +432,6 @@ pub fn sshfs<'a>(
         ex.execute_background("sudo", &args, None)?;
         Ok(())
     } else {
-        Err(PermissionError::new(local_path))
+        Err(SshfsPermissionError::new(local_path))
     }
 }
