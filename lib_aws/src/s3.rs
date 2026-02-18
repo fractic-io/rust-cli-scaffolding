@@ -5,7 +5,6 @@ use aws_sdk_s3::{
     operation::head_bucket::HeadBucketError, types::CreateBucketConfiguration, Client,
 };
 use chrono::{DateTime, Utc};
-use futures::TryStreamExt;
 use futures_util::stream::{self, StreamExt as _, TryStreamExt as _};
 use lib_core::{define_cli_error, CliError, IOError, Printer};
 use sha2::{Digest as _, Sha256};
@@ -180,7 +179,7 @@ pub async fn s3_list(
         .set_prefix((!prefix.is_empty()).then_some(prefix.to_string()))
         .into_paginator()
         .send()
-        .try_collect::<Vec<_>>()
+        .try_collect()
         .await
         .map_err(|e| S3Error::with_debug(&e))?
         .into_iter()
