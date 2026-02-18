@@ -53,7 +53,8 @@ pub async fn sam_build(
             env: Some(env),
             ..Default::default()
         },
-    )?;
+    )
+    .await?;
     Ok(())
 }
 
@@ -95,6 +96,7 @@ pub async fn sam_deploy(
             dir: Some(project_dir),
             ..Default::default()
         },
-    )?;
+    )
+    .await?;
     Ok(())
 }

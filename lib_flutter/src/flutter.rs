@@ -152,7 +152,7 @@ pub fn flutter_build(
     // Prepare main build function, and add optional override wrappers for iOS.
     // ==
     let build_fn = || {
-        ex.execute_with_options(
+        ex.execute_with_options_sync(
             "flutter",
             &args,
             IOMode::StreamOutput,
@@ -265,13 +265,13 @@ pub fn flutter_install(
         BuildFor::Android => {
             // First try directly installing with adb (to do "streamed install"
             // if the app is already exists), but fall back to flutter install.
-            ex.execute(
+            ex.execute_sync(
                 "adb",
                 &["install", "-r", &output_path.to_string_lossy()],
                 IOMode::StreamOutput,
             )
             .or_else(|_| {
-                ex.execute_with_options(
+                ex.execute_with_options_sync(
                     "flutter",
                     &install_args,
                     IOMode::StreamOutput,
@@ -284,7 +284,7 @@ pub fn flutter_install(
         }
         BuildFor::Ios | BuildFor::IosPublish => {
             // Install with linux-friendly ideviceinstaller.
-            ex.execute(
+            ex.execute_sync(
                 "ideviceinstaller",
                 &["install", &output_path.to_string_lossy()],
                 IOMode::StreamOutput,
@@ -326,7 +326,7 @@ pub fn run_flutter_integration_test(
         .collect();
     args.extend(setexprs.iter().map(|s| s.as_str()));
 
-    ex.execute_with_options(
+    ex.execute_with_options_sync(
         "flutter",
         &args,
         IOMode::StreamOutput,

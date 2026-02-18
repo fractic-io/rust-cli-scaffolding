@@ -30,7 +30,7 @@ define_cli_error!(
     { system_image: &str }
 );
 
-pub fn create_android_emulator_if_not_exists(
+pub async fn create_android_emulator_if_not_exists(
     pr: &Printer,
     ex: &Executor,
     avd_id: &str,
@@ -38,7 +38,8 @@ pub fn create_android_emulator_if_not_exists(
     orientation: Orientation,
 ) -> Result<(), CliError> {
     let avd_exists = ex
-        .execute("avdmanager", &["list", "avd"], IOMode::Silent)?
+        .execute("avdmanager", &["list", "avd"], IOMode::Silent)
+        .await?
         .split("\n")
         .any(|line| line.trim() == format!("Name: {}", avd_id));
 
@@ -48,6 +49,7 @@ pub fn create_android_emulator_if_not_exists(
             avd_image
         ));
         ex.execute("sdkmanager", &[avd_image], IOMode::StreamOutput)
+            .await
             .map_err(|e| AndroidSystemImageMissing::with_debug(avd_image, &e))?;
 
         pr.info(&format!(
@@ -62,7 +64,8 @@ pub fn create_android_emulator_if_not_exists(
                 "create", "avd", "-n", avd_id, "-d", avd_id, "-k", avd_image, "--force",
             ],
             IOMode::StreamOutput,
-        )?;
+        )
+        .await?;
         set_avd_orientation(avd_id, orientation)?;
     } else {
         pr.info(&format!("AVD '{}' already exists.", avd_id));
@@ -70,7 +73,7 @@ pub fn create_android_emulator_if_not_exists(
     Ok(())
 }
 
-pub fn start_android_emulator(
+pub async fn start_android_emulator(
     pr: &Printer,
     ex: &mut Executor,
     avd_id: &str,
@@ -91,10 +94,11 @@ pub fn start_android_emulator(
     //   - Errors are by default not output to stderr, so they are not displayed
     //   by execute_background. So we redirect with grep.
     let cmd = format!(
-        "emulator -no-snapshot -wipe-data -no-window -no-audio -port {} -avd {} -delay-adb 2>&1 | tee >(grep 'ERROR' >&2)",
+        "emulator -no-snapshot -wipe-data -no-window -no-audio -port {} -avd {} -delay-adb 2>&1 | \
+         tee >(grep 'ERROR' >&2)",
         port, avd_id
     );
-    ex.execute_background("bash", &["-c", &cmd], None)?;
+    ex.execute_background("bash", &["-c", &cmd], None).await?;
 
     // Wait for the emulator to start.
     pr.info("Waiting for device to boot...");
@@ -108,7 +112,8 @@ pub fn start_android_emulator(
             "while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done",
         ],
         IOMode::StreamOutput,
-    )?;
+    )
+    .await?;
 
     // Wait 5s.
     pr.info("Waiting extra 5s...");
@@ -117,14 +122,19 @@ pub fn start_android_emulator(
     Ok(adb_id)
 }
 
-pub fn kill_android_emulator(pr: &Printer, ex: &Executor, adb_id: String) -> Result<(), CliError> {
+pub async fn kill_android_emulator(
+    pr: &Printer,
+    ex: &Executor,
+    adb_id: String,
+) -> Result<(), CliError> {
     // Stop the emulator.
     pr.info(&format!("Stopping emulator '{}'...", adb_id));
     ex.execute(
         "adb",
         &["-s", &adb_id, "shell", "reboot", "-p"],
         IOMode::Silent,
-    )?;
+    )
+    .await?;
 
     // Wait 5s.
     pr.info("Waiting extra 5s...");

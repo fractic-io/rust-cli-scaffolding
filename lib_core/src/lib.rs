@@ -1,3 +1,5 @@
+#![feature(async_fn_track_caller)]
+
 mod cli_error;
 mod common_entities;
 mod config;
