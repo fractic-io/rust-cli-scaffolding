@@ -1,4 +1,5 @@
 use chrono::{Datelike, Local, NaiveDate, NaiveTime};
+use futures_util::stream::{self, StreamExt as _, TryStreamExt as _};
 use lib_core::{define_cli_error, CliError, CriticalError, Executor, IOMode, InvalidUTF8, Printer};
 use nix::unistd;
 use openssh::{ForwardType, KnownHosts, Session, SessionBuilder};
@@ -566,20 +567,98 @@ pub fn scp_download_file<'a>(
     Ok(())
 }
 
-pub async fn ssh_delete_files<'a>(
+pub async fn scp_download_files<'a>(
     user: &str,
     hostname: &str,
     connect_options: Option<SshConnectOptions<'a>>,
-    paths: &[String],
+    files: Vec<(String, String)>,
+    max_concurrency: usize,
+) -> Result<(), CliError> {
+    let max_concurrency = max_concurrency.max(1);
+    let connect_opt = connect_options.unwrap_or_default();
+    let port = connect_opt.port_or_default().to_string();
+    let identity_file = connect_opt.identity_file_or_default();
+    let known_hosts_file = connect_opt.known_hosts_file_or_default();
+    let connect_timeout = connect_opt.connect_timeout_or_default();
+    let known_hosts_opt = format!("UserKnownHostsFile={}", known_hosts_file);
+    let connect_timeout_opt = format!("ConnectTimeout={}", connect_timeout.as_secs());
+
+    stream::iter(files.into_iter().map(|(remote_path, local_path)| {
+        let port = port.clone();
+        let identity_file = identity_file.clone();
+        let known_hosts_opt = known_hosts_opt.clone();
+        let connect_timeout_opt = connect_timeout_opt.clone();
+        let source = format!("{}@{}:{}", user, hostname, remote_path);
+        async move {
+            let out = tokio::process::Command::new("scp")
+                .args([
+                    "-P",
+                    &port,
+                    "-i",
+                    &identity_file,
+                    "-p",
+                    "-o",
+                    "StrictHostKeyChecking=accept-new",
+                    "-o",
+                    &known_hosts_opt,
+                    "-o",
+                    &connect_timeout_opt,
+                    &source,
+                    &local_path,
+                ])
+                .output()
+                .await
+                .map_err(|e| InvalidSshRequest::with_debug("failed to execute scp", &e))?;
+            if out.status.success() {
+                Ok::<(), CliError>(())
+            } else {
+                Err(InvalidSshRequest::new("scp command failed"))
+            }
+        }
+    }))
+    .buffer_unordered(max_concurrency)
+    .try_collect::<Vec<_>>()
+    .await?;
+
+    Ok(())
+}
+
+pub async fn scp_delete_file<'a>(
+    user: &str,
+    hostname: &str,
+    connect_options: Option<SshConnectOptions<'a>>,
+    path: &str,
+) -> Result<(), CliError> {
+    let _ = ssh_exec_command(
+        user,
+        hostname,
+        connect_options,
+        "sh",
+        &["-lc", "rm -f -- \"$1\"", "sh", path],
+    )
+    .await?;
+    Ok(())
+}
+
+pub async fn scp_delete_files<'a>(
+    user: &str,
+    hostname: &str,
+    connect_options: Option<SshConnectOptions<'a>>,
+    paths: Vec<String>,
+    max_concurrency: usize,
 ) -> Result<(), CliError> {
     if paths.is_empty() {
         return Ok(());
     }
 
-    let mut args = vec!["-lc", "for p in \"$@\"; do rm -f -- \"$p\"; done", "sh"];
-    let mut path_args = paths.iter().map(|p| p.as_str()).collect::<Vec<_>>();
-    args.append(&mut path_args);
-    let _ = ssh_exec_command(user, hostname, connect_options, "sh", &args).await?;
+    let max_concurrency = max_concurrency.max(1);
+    stream::iter(paths.into_iter().map(|path| async move {
+        scp_delete_file(user, hostname, connect_options, &path).await
+    }))
+    .buffer_unordered(max_concurrency)
+    .try_collect::<Vec<_>>()
+    .await?;
+
     Ok(())
 }
 

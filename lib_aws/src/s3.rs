@@ -3,6 +3,7 @@ use std::path::Path;
 use aws_sdk_cloudformation::error::SdkError;
 use aws_sdk_s3::{operation::head_bucket::HeadBucketError, types::CreateBucketConfiguration, Client};
 use chrono::{DateTime, Utc};
+use futures_util::stream::{self, StreamExt as _, TryStreamExt as _};
 use lib_core::{define_cli_error, CliError, IOError, Printer};
 use sha2::{Digest as _, Sha256};
 
@@ -136,7 +137,7 @@ pub async fn list_objects_with_prefix(
     Ok(objects)
 }
 
-pub async fn download_object_to_path<P>(
+pub async fn s3_download_object_to_path<P>(
     profile: &str,
     region: &str,
     bucket: &str,
@@ -168,7 +169,53 @@ where
     Ok(())
 }
 
-pub async fn delete_object(profile: &str, region: &str, bucket: &str, key: &str) -> Result<(), CliError> {
+pub async fn s3_download_objects_to_path(
+    profile: &str,
+    region: &str,
+    bucket: &str,
+    objects: Vec<(String, std::path::PathBuf)>,
+    max_concurrency: usize,
+) -> Result<(), CliError> {
+    let max_concurrency = max_concurrency.max(1);
+    let client = Client::new(&config_from_profile(profile, region).await);
+
+    stream::iter(objects.into_iter().map(|(key, local_path)| {
+        let client = client.clone();
+        let bucket = bucket.to_string();
+        async move {
+            let response = client
+                .get_object()
+                .bucket(&bucket)
+                .key(&key)
+                .send()
+                .await
+                .map_err(|e| S3Error::with_debug(&e))?;
+            let bytes = response
+                .body
+                .collect()
+                .await
+                .map_err(|e| IOError::with_debug(&e))?
+                .into_bytes();
+            if let Some(parent) = local_path.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| IOError::with_debug(&e))?;
+            }
+            std::fs::write(local_path, bytes).map_err(|e| IOError::with_debug(&e))?;
+            Ok::<(), CliError>(())
+        }
+    }))
+    .buffer_unordered(max_concurrency)
+    .try_collect::<Vec<_>>()
+    .await?;
+
+    Ok(())
+}
+
+pub async fn s3_delete_object(
+    profile: &str,
+    region: &str,
+    bucket: &str,
+    key: &str,
+) -> Result<(), CliError> {
     let client = Client::new(&config_from_profile(profile, region).await);
     client
         .delete_object()
@@ -180,15 +227,34 @@ pub async fn delete_object(profile: &str, region: &str, bucket: &str, key: &str)
     Ok(())
 }
 
-pub async fn delete_objects(
+pub async fn s3_delete_objects(
     profile: &str,
     region: &str,
     bucket: &str,
-    keys: &[String],
+    keys: Vec<String>,
+    max_concurrency: usize,
 ) -> Result<(), CliError> {
-    for key in keys {
-        delete_object(profile, region, bucket, key).await?;
-    }
+    let max_concurrency = max_concurrency.max(1);
+    let client = Client::new(&config_from_profile(profile, region).await);
+
+    stream::iter(keys.into_iter().map(|key| {
+        let client = client.clone();
+        let bucket = bucket.to_string();
+        async move {
+            client
+                .delete_object()
+                .bucket(&bucket)
+                .key(&key)
+                .send()
+                .await
+                .map_err(|e| S3Error::with_debug(&e))?;
+            Ok::<(), CliError>(())
+        }
+    }))
+    .buffer_unordered(max_concurrency)
+    .try_collect::<Vec<_>>()
+    .await?;
+
     Ok(())
 }
 
