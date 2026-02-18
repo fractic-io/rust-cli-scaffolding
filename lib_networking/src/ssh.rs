@@ -198,7 +198,7 @@ pub async fn forward_port<'a>(
     Ok(PortForwardHandle { _session: session })
 }
 
-pub fn ssh_cache_identity(
+pub async fn ssh_cache_identity(
     pr: &Printer,
     ex: &Executor,
     identity_file: &PathBuf,
@@ -233,11 +233,13 @@ pub fn ssh_cache_identity(
             NaiveTime::from_hms_opt(4, 0, 0).expect("hardcoded NaiveTime should be valid"),
         ),
     };
-    let agent_init = ex.execute("ssh-agent", &["-s"], IOMode::Silent)?;
-    ex.execute("sh", &["-c", &agent_init], IOMode::Silent)?;
+    let agent_init = ex.execute("ssh-agent", &["-s"], IOMode::Silent).await?;
+    ex.execute("sh", &["-c", &agent_init], IOMode::Silent)
+        .await?;
 
     let existing_cached_identities = ex
         .execute("ssh-add", &["-l"], IOMode::Silent)
+        .await
         // NOTE: 'ssh-add -l' returns error code 1 if the agent has no
         // identities, so just treat an error as empty.
         .unwrap_or_default();
@@ -245,7 +247,8 @@ pub fn ssh_cache_identity(
         "ssh-keygen",
         &["-lf", &identity_file.display().to_string()],
         IOMode::Silent,
-    )?;
+    )
+    .await?;
     let search_query_sha_component = search_query.split_whitespace().nth(1).ok_or_else(|| {
         CriticalError::new(&format!(
             "could not find SHA component of ssh-keygen spec: '{}'.",
@@ -266,7 +269,8 @@ pub fn ssh_cache_identity(
                 &identity_file.display().to_string(),
             ],
             IOMode::Attach,
-        )?;
+        )
+        .await?;
     }
     Ok(())
 }
@@ -304,12 +308,12 @@ pub async fn ssh_exec_command<'a>(
     String::from_utf8(out.stdout).map_err(|e| InvalidUTF8::with_debug(&e))
 }
 
-pub fn ssh_attach<'a>(
+pub async fn ssh_attach<'a>(
     ex: &Executor,
     user: &str,
     hostname: &str,
     connect_options: Option<SshConnectOptions<'a>>,
-    attach_options: Option<SshAttachOptions>,
+    attach_options: Option<SshAttachOptions<'_>>,
 ) -> Result<(), CliError> {
     let connect_opt = connect_options.unwrap_or_default();
     let attach_opt = attach_options.unwrap_or_default();
@@ -353,11 +357,11 @@ pub fn ssh_attach<'a>(
         &command,
     ];
 
-    ex.execute("ssh", &args, IOMode::Attach)?;
+    ex.execute("ssh", &args, IOMode::Attach).await?;
     Ok(())
 }
 
-pub fn sshfs<'a>(
+pub async fn sshfs<'a>(
     ex: &mut Executor,
     remote_path: &str,
     local_path: &str,
@@ -410,7 +414,7 @@ pub fn sshfs<'a>(
         let mut args = vec![];
         args.extend_from_slice(&common_args);
         args.extend_from_slice(&["-o", "idmap=user", remote_path, local_path]);
-        ex.execute_background("sshfs", &args, None)?;
+        ex.execute_background("sshfs", &args, None).await?;
         Ok(())
     } else if sudo_fallback {
         // Run as root, but mount as local user.
@@ -429,7 +433,7 @@ pub fn sshfs<'a>(
             remote_path,
             local_path,
         ]);
-        ex.execute_background("sudo", &args, None)?;
+        ex.execute_background("sudo", &args, None).await?;
         Ok(())
     } else {
         Err(SshfsPermissionError::new(local_path))
