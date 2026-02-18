@@ -10,7 +10,7 @@ define_cli_error!(
     { details: &str }
 );
 define_cli_error!(
-    SshRemoteFileInfoParseError,
+    ScpRemoteFileInfoParseError,
     "Failed to parse remote file info line: '{line}'.",
     { line: &str }
 );
@@ -167,13 +167,13 @@ pub async fn scp_list_files_recursive<'a>(
             let mut parts = line.splitn(3, '|');
             let modified_raw = parts
                 .next()
-                .ok_or_else(|| SshRemoteFileInfoParseError::new(line))?;
+                .ok_or_else(|| ScpRemoteFileInfoParseError::new(line))?;
             let size_raw = parts
                 .next()
-                .ok_or_else(|| SshRemoteFileInfoParseError::new(line))?;
+                .ok_or_else(|| ScpRemoteFileInfoParseError::new(line))?;
             let path_raw = parts
                 .next()
-                .ok_or_else(|| SshRemoteFileInfoParseError::new(line))?;
+                .ok_or_else(|| ScpRemoteFileInfoParseError::new(line))?;
 
             let modified_epoch_sec = if modified_raw.contains('.') {
                 modified_raw
@@ -181,16 +181,16 @@ pub async fn scp_list_files_recursive<'a>(
                     .next()
                     .unwrap_or_default()
                     .parse::<i64>()
-                    .map_err(|e| SshRemoteFileInfoParseError::with_debug(line, &e))?
+                    .map_err(|e| ScpRemoteFileInfoParseError::with_debug(line, &e))?
             } else {
                 modified_raw
                     .parse::<i64>()
-                    .map_err(|e| SshRemoteFileInfoParseError::with_debug(line, &e))?
+                    .map_err(|e| ScpRemoteFileInfoParseError::with_debug(line, &e))?
             };
 
             let size = size_raw
                 .parse::<u64>()
-                .map_err(|e| SshRemoteFileInfoParseError::with_debug(line, &e))?;
+                .map_err(|e| ScpRemoteFileInfoParseError::with_debug(line, &e))?;
 
             Ok(ScpRemoteFileInfo {
                 path: path_raw.to_string(),
