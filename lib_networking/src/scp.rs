@@ -16,7 +16,7 @@ define_cli_error!(
 );
 
 #[derive(Debug, Clone)]
-pub struct SshRemoteFileInfo {
+pub struct ScpRemoteFileInfo {
     pub path: String,
     pub size: u64,
     pub modified_epoch_sec: i64,
@@ -144,7 +144,7 @@ pub async fn scp_list_files_recursive<'a>(
     hostname: &str,
     connect_options: Option<SshConnectOptions<'a>>,
     path: &str,
-) -> Result<Vec<SshRemoteFileInfo>, CliError> {
+) -> Result<Vec<ScpRemoteFileInfo>, CliError> {
     let output = ssh_exec_command(
         user,
         hostname,
@@ -192,7 +192,7 @@ pub async fn scp_list_files_recursive<'a>(
                 .parse::<u64>()
                 .map_err(|e| SshRemoteFileInfoParseError::with_debug(line, &e))?;
 
-            Ok(SshRemoteFileInfo {
+            Ok(ScpRemoteFileInfo {
                 path: path_raw.to_string(),
                 size,
                 modified_epoch_sec,
