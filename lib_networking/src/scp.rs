@@ -108,6 +108,7 @@ pub fn scp_upload_files<'a>(
     args.push(&scp_dest);
 
     ex.execute("scp", &args, IOMode::Silent)?;
+
     Ok(())
 }
 
@@ -126,6 +127,7 @@ pub fn scp_upload_dir<'a>(
         .filter(|entry| entry.file_type().is_file())
         .map(|entry| entry.path().to_path_buf())
         .collect::<Vec<_>>();
+
     scp_upload_files(
         pr,
         ex,
@@ -232,6 +234,7 @@ pub fn scp_download_file<'a>(
         local_path,
     ];
     ex.execute("scp", &args, IOMode::Silent)?;
+
     Ok(())
 }
 
@@ -305,6 +308,7 @@ pub async fn scp_delete_file<'a>(
         &["-lc", "rm -f -- \"$1\"", "sh", path],
     )
     .await?;
+
     Ok(())
 }
 
@@ -320,6 +324,7 @@ pub async fn scp_delete_files<'a>(
     }
 
     let max_concurrency = max_concurrency.max(1);
+
     stream::iter(
         paths.into_iter().map(|path| async move {
             scp_delete_file(user, hostname, connect_options, &path).await

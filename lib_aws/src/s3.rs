@@ -96,7 +96,9 @@ where
     if !file_path.as_ref().is_file() {
         return Err(S3InvalidUpload::new("path is not a file"));
     }
+
     let client = Client::new(&config_from_profile(profile, region).await);
+
     let body = aws_sdk_s3::primitives::ByteStream::from_path(file_path)
         .await
         .map_err(|e| IOError::with_debug(&e))?;
@@ -108,6 +110,7 @@ where
         .send()
         .await
         .map_err(|e| S3Error::with_debug(&e))?;
+
     pr.info(&format!("Uploaded file to 's3://{}/{}'.", bucket, key));
     Ok(())
 }
@@ -130,7 +133,9 @@ where
     if !dir_path.as_ref().is_dir() {
         return Err(S3InvalidUpload::new("path is not a directory"));
     }
+
     let client = Client::new(&config_from_profile(profile, region).await);
+
     let mut count = 0;
     for entry in walkdir::WalkDir::new(&dir_path) {
         let entry = entry.map_err(|e| IOError::with_debug(&e))?;
@@ -158,6 +163,7 @@ where
             count += 1;
         }
     }
+
     pr.info(&format!(
         "Uploaded {} file(s) to 's3://{}/{}/'.",
         count, bucket, key_prefix
@@ -212,6 +218,7 @@ where
     P: AsRef<Path>,
 {
     let client = Client::new(&config_from_profile(profile, region).await);
+
     let response = client
         .get_object()
         .bucket(bucket)
@@ -230,6 +237,7 @@ where
         std::fs::create_dir_all(parent).map_err(|e| IOError::with_debug(&e))?;
     }
     std::fs::write(local_path, bytes).map_err(|e| IOError::with_debug(&e))?;
+
     Ok(())
 }
 
@@ -259,6 +267,7 @@ pub async fn s3_delete_object(
     key: &str,
 ) -> Result<(), CliError> {
     let client = Client::new(&config_from_profile(profile, region).await);
+
     client
         .delete_object()
         .bucket(bucket)
@@ -266,6 +275,7 @@ pub async fn s3_delete_object(
         .send()
         .await
         .map_err(|e| S3Error::with_debug(&e))?;
+
     Ok(())
 }
 
@@ -297,6 +307,7 @@ pub async fn s3_create_folder_placeholder(
     key: &str,
 ) -> Result<(), CliError> {
     let client = Client::new(&config_from_profile(profile, region).await);
+
     client
         .put_object()
         .bucket(bucket)
@@ -305,6 +316,7 @@ pub async fn s3_create_folder_placeholder(
         .send()
         .await
         .map_err(|e| S3Error::with_debug(&e))?;
+
     pr.info(&format!(
         "Created folder placeholder at 's3://{}/{}'.",
         bucket, key
