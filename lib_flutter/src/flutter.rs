@@ -4,10 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use lib_core::{
-    define_cli_error, with_tmp_edits_to_file, with_written_to_tmp_file_at_path, CliError,
-    ExecuteOptions, Executor, IOError, IOMode, Printer,
-};
+use lib_core::{define_cli_error, CliError, ExecuteOptions, Executor, IOError, IOMode, Printer};
 use regex::Regex;
 
 define_cli_error!(
@@ -66,13 +63,13 @@ pub struct XcodeSigningOverride<'a> {
 }
 
 /// Returns the path to the generated output.
-pub fn flutter_build(
+pub async fn flutter_build(
     pr: &Printer,
     ex: &Executor,
     dir: &Path,
     os: BuildFor,
     build_type: BuildType,
-    options: Option<BuildOptions>,
+    options: Option<BuildOptions<'_>>,
 ) -> Result<PathBuf, CliError> {
     // Constants.
     // ==
@@ -151,7 +148,7 @@ pub fn flutter_build(
 
     // Prepare main build function, and add optional override wrappers for iOS.
     // ==
-    let build_fn = || {
+    let build_fn = || async {
         ex.execute_with_options(
             "flutter",
             &args,
@@ -161,6 +158,7 @@ pub fn flutter_build(
                 ..Default::default()
             },
         )
+        .await
     };
     if let Some(xc) = options.xcode_signing_override {
         let for_app_store = match os {
@@ -181,54 +179,92 @@ pub fn flutter_build(
             .join("Provisioning Profiles");
         std::fs::create_dir_all(&profiles_dir).map_err(|e| IOError::with_debug(&e))?;
         let profile_dest = profiles_dir.join("tmp_cli_build.mobileprovision");
+        if profile_dest.exists() {
+            return Err(FlutterInvalidBuildOptions::new(
+                "temporary provisioning profile path already exists",
+            ));
+        }
         let profile_uuid = extract_profile_uuid(xc.provisioning_profile)?;
-        with_written_to_tmp_file_at_path(pr, xc.provisioning_profile, &profile_dest, || {
-            // Wrapper 2: Override Xcode config (used by archive step).
-            // --
-            let xcconfig_path = dir.join("ios").join("Flutter").join(match build_type {
-                BuildType::Debug => "Debug.xcconfig",
-                BuildType::Profile | BuildType::Release => "Release.xcconfig",
-            });
-            let xconfig_patch_fn = |original: String| {
-                let mut lines: Vec<String> =
-                    original.lines().map(|s| s.to_string() + "\n").collect();
-                lines = override_xcconfig_key(lines, "DEVELOPMENT_TEAM", xc.team_id);
-                lines = override_xcconfig_key(lines, "CODE_SIGN_STYLE", "Manual");
-                lines =
-                    override_xcconfig_key(lines, "PROVISIONING_PROFILE_SPECIFIER", &profile_uuid);
-                lines = override_xcconfig_key(
-                    lines,
-                    "CODE_SIGN_IDENTITY",
-                    match for_app_store {
-                        true => "Apple Distribution",
-                        false => "Apple Development",
-                    },
-                );
-                lines.into_iter().collect()
-            };
-            with_tmp_edits_to_file(pr, &xcconfig_path, xconfig_patch_fn, || {
-                // Wrapper 3: Override export options (used by export step).
-                // --
-                let export_plist_path = dir.join("ios").join("ExportOptions.plist");
-                let export_plist_content = build_export_plist_content(
-                    match for_app_store {
-                        true => "app-store",
-                        false => "development",
-                    },
-                    xc.bundle_id,
-                    &profile_uuid,
-                    xc.team_id,
-                );
-                with_written_to_tmp_file_at_path(
-                    pr,
-                    export_plist_content,
-                    &export_plist_path,
-                    || build_fn(),
-                )
-            })
-        })?;
+        pr.info(&format!(
+            "Writing to temporary file at {}.",
+            profile_dest.display()
+        ));
+        std::fs::write(&profile_dest, xc.provisioning_profile)
+            .map_err(|e| IOError::with_debug(&e))?;
+
+        // Wrapper 2: Override Xcode config (used by archive step).
+        // --
+        let xcconfig_path = dir.join("ios").join("Flutter").join(match build_type {
+            BuildType::Debug => "Debug.xcconfig",
+            BuildType::Profile | BuildType::Release => "Release.xcconfig",
+        });
+        let xcconfig_original =
+            std::fs::read_to_string(&xcconfig_path).map_err(|e| IOError::with_debug(&e))?;
+        let mut lines: Vec<String> = xcconfig_original
+            .lines()
+            .map(|s| s.to_string() + "\n")
+            .collect();
+        lines = override_xcconfig_key(lines, "DEVELOPMENT_TEAM", xc.team_id);
+        lines = override_xcconfig_key(lines, "CODE_SIGN_STYLE", "Manual");
+        lines = override_xcconfig_key(lines, "PROVISIONING_PROFILE_SPECIFIER", &profile_uuid);
+        lines = override_xcconfig_key(
+            lines,
+            "CODE_SIGN_IDENTITY",
+            match for_app_store {
+                true => "Apple Distribution",
+                false => "Apple Development",
+            },
+        );
+        let xcconfig_edited = lines.into_iter().collect::<String>();
+        pr.info(&format!(
+            "Temporarily editing file at {}.",
+            xcconfig_path.display()
+        ));
+        std::fs::write(&xcconfig_path, xcconfig_edited).map_err(|e| IOError::with_debug(&e))?;
+
+        // Wrapper 3: Override export options (used by export step).
+        // --
+        let export_plist_path = dir.join("ios").join("ExportOptions.plist");
+        if export_plist_path.exists() {
+            let _ = std::fs::write(&xcconfig_path, &xcconfig_original);
+            let _ = std::fs::remove_file(&profile_dest);
+            return Err(FlutterInvalidBuildOptions::new(
+                "temporary export options path already exists",
+            ));
+        }
+        let export_plist_content = build_export_plist_content(
+            match for_app_store {
+                true => "app-store",
+                false => "development",
+            },
+            xc.bundle_id,
+            &profile_uuid,
+            xc.team_id,
+        );
+        pr.info(&format!(
+            "Writing to temporary file at {}.",
+            export_plist_path.display()
+        ));
+        std::fs::write(&export_plist_path, export_plist_content)
+            .map_err(|e| IOError::with_debug(&e))?;
+
+        let build_result = build_fn().await;
+        let remove_export_result = std::fs::remove_file(&export_plist_path);
+        let restore_xconfig_result = std::fs::write(&xcconfig_path, xcconfig_original);
+        let remove_profile_result = std::fs::remove_file(&profile_dest);
+
+        if let Err(e) = remove_export_result {
+            return Err(IOError::with_debug(&e));
+        }
+        if let Err(e) = restore_xconfig_result {
+            return Err(IOError::with_debug(&e));
+        }
+        if let Err(e) = remove_profile_result {
+            return Err(IOError::with_debug(&e));
+        }
+        build_result?;
     } else {
-        build_fn()?;
+        build_fn().await?;
     }
 
     // Validate and return path to completed build.
@@ -237,15 +273,15 @@ pub fn flutter_build(
         .map_err(|e| FlutterUnexpectedBuildOutputPath::with_debug(&output_path, &e))
 }
 
-pub fn flutter_install(
+pub async fn flutter_install(
     pr: &Printer,
     ex: &Executor,
     dir: &Path,
     os: BuildFor,
     build_type: BuildType,
-    options: Option<BuildOptions>,
+    options: Option<BuildOptions<'_>>,
 ) -> Result<(), CliError> {
-    let output_path = flutter_build(pr, ex, dir, os.clone(), build_type, options.clone())?;
+    let output_path = flutter_build(pr, ex, dir, os.clone(), build_type, options.clone()).await?;
 
     pr.info(&format!(
         "Installing '{}'...",
@@ -265,12 +301,15 @@ pub fn flutter_install(
         BuildFor::Android => {
             // First try directly installing with adb (to do "streamed install"
             // if the app is already exists), but fall back to flutter install.
-            ex.execute(
-                "adb",
-                &["install", "-r", &output_path.to_string_lossy()],
-                IOMode::StreamOutput,
-            )
-            .or_else(|_| {
+            if ex
+                .execute(
+                    "adb",
+                    &["install", "-r", &output_path.to_string_lossy()],
+                    IOMode::StreamOutput,
+                )
+                .await
+                .is_err()
+            {
                 ex.execute_with_options(
                     "flutter",
                     &install_args,
@@ -280,7 +319,8 @@ pub fn flutter_install(
                         ..Default::default()
                     },
                 )
-            })?;
+                .await?;
+            }
         }
         BuildFor::Ios | BuildFor::IosPublish => {
             // Install with linux-friendly ideviceinstaller.
@@ -288,7 +328,8 @@ pub fn flutter_install(
                 "ideviceinstaller",
                 &["install", &output_path.to_string_lossy()],
                 IOMode::StreamOutput,
-            )?;
+            )
+            .await?;
         }
         _ => return Err(FlutterBuildTypeDoesntSupportInstall::new(&os)),
     }
@@ -296,7 +337,7 @@ pub fn flutter_install(
     Ok(())
 }
 
-pub fn run_flutter_integration_test(
+pub async fn run_flutter_integration_test(
     ex: &Executor,
     dir: &Path,
     adb_id: &str,
@@ -334,7 +375,8 @@ pub fn run_flutter_integration_test(
             dir: Some(dir),
             ..Default::default()
         },
-    )?;
+    )
+    .await?;
 
     Ok(())
 }

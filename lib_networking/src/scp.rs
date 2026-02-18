@@ -22,7 +22,7 @@ pub struct ScpRemoteFileInfo {
     pub modified_epoch_sec: i64,
 }
 
-pub fn scp_upload_file<'a>(
+pub async fn scp_upload_file<'a>(
     pr: &Printer,
     ex: &Executor,
     user: &str,
@@ -40,9 +40,10 @@ pub fn scp_upload_file<'a>(
         vec![file],
         destination,
     )
+    .await
 }
 
-pub fn scp_upload_files<'a>(
+pub async fn scp_upload_files<'a>(
     pr: &Printer,
     ex: &Executor,
     user: &str,
@@ -107,12 +108,12 @@ pub fn scp_upload_files<'a>(
     args.extend(scp_sources);
     args.push(&scp_dest);
 
-    ex.execute("scp", &args, IOMode::Silent)?;
+    ex.execute("scp", &args, IOMode::Silent).await?;
 
     Ok(())
 }
 
-pub fn scp_upload_dir<'a>(
+pub async fn scp_upload_dir<'a>(
     pr: &Printer,
     ex: &Executor,
     user: &str,
@@ -137,6 +138,7 @@ pub fn scp_upload_dir<'a>(
         files.iter().collect(),
         destination,
     )
+    .await
 }
 
 pub async fn scp_list_files_recursive<'a>(
@@ -201,7 +203,7 @@ pub async fn scp_list_files_recursive<'a>(
         .collect()
 }
 
-pub fn scp_download_file<'a>(
+pub async fn scp_download_file<'a>(
     ex: &Executor,
     user: &str,
     hostname: &str,
@@ -233,7 +235,7 @@ pub fn scp_download_file<'a>(
         &source,
         local_path,
     ];
-    ex.execute("scp", &args, IOMode::Silent)?;
+    ex.execute("scp", &args, IOMode::Silent).await?;
 
     Ok(())
 }

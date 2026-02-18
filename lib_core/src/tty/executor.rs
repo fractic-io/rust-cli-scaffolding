@@ -1,8 +1,13 @@
 use std::{
     fs,
-    io::{self, Read as _, Write as _},
+    io::{self, Write as _},
     path::Path,
     process::ExitStatus,
+};
+
+use tokio::{
+    io::AsyncReadExt as _,
+    process::{Child, Command},
 };
 
 use crate::{define_cli_error, CliError, IOError};
@@ -48,7 +53,7 @@ pub struct ExecuteOptions<'a> {
 
 #[derive(Debug)]
 pub struct Executor {
-    background_processes: Vec<std::process::Child>,
+    background_processes: Vec<Child>,
 }
 
 impl Executor {
@@ -58,7 +63,7 @@ impl Executor {
         }
     }
 
-    pub fn has_command(&self, program: &str) -> bool {
+    pub async fn has_command(&self, program: &str) -> bool {
         let program = program.trim();
         if program.is_empty() {
             return false;
@@ -66,56 +71,57 @@ impl Executor {
 
         #[cfg(windows)]
         {
-            std::process::Command::new("cmd")
+            Command::new("cmd")
                 .args(["/C", "where", "/Q"])
                 .arg(program)
                 .status()
+                .await
                 .map(|status| status.success())
                 .unwrap_or(false)
         }
 
         #[cfg(not(windows))]
         {
-            std::process::Command::new("sh")
+            Command::new("sh")
                 .args(["-c", "command -v -- \"$1\" >/dev/null 2>&1", "sh"])
                 .arg(program)
                 .status()
+                .await
                 .map(|status| status.success())
                 .unwrap_or(false)
         }
     }
 
-    pub fn require_command(&self, program: &str) -> Result<(), CliError> {
-        if self.has_command(program) {
+    pub async fn require_command(&self, program: &str) -> Result<(), CliError> {
+        if self.has_command(program).await {
             Ok(())
         } else {
             Err(TtyRequiredCommandMissing::new(program))
         }
     }
 
-    #[track_caller]
-    pub fn execute(
+    pub async fn execute(
         &self,
         command: &str,
         args: &[&str],
         io_mode: IOMode,
     ) -> Result<String, CliError> {
         self.execute_with_options(command, args, io_mode, ExecuteOptions::default())
+            .await
     }
 
-    #[track_caller]
-    pub fn execute_with_options(
+    pub async fn execute_with_options(
         &self,
         command: &str,
         args: &[&str],
         io_mode: IOMode,
-        options: ExecuteOptions,
+        options: ExecuteOptions<'_>,
     ) -> Result<String, CliError> {
         let abs_dir = match options.dir {
             Some(p) => fs::canonicalize(p).map_err(|e| IOError::with_debug(&e))?,
             None => std::env::current_dir().map_err(|e| IOError::with_debug(&e))?,
         };
-        let mut child = std::process::Command::new(command)
+        let mut child = Command::new(command)
             .args(args)
             .current_dir(abs_dir)
             .envs(options.env.unwrap_or_default())
@@ -141,44 +147,20 @@ impl Executor {
         let mut collected_output = String::new();
 
         if io_mode != IOMode::Attach {
-            if let Some(mut stdout) = child.stdout.take() {
-                let mut buffer = [0; 1024];
-                loop {
-                    match stdout.read(&mut buffer) {
-                        Ok(0) => break, // EOF reached
-                        Ok(n) => {
-                            let output = String::from_utf8_lossy(&buffer[..n]);
-                            if io_mode == IOMode::StreamOutput {
-                                print!("{}", output);
-                                io::stdout().flush().unwrap();
-                            }
-                            collected_output.push_str(&output);
-                        }
-                        Err(_) => break,
-                    }
-                }
-            }
-
-            if let Some(mut stderr) = child.stderr.take() {
-                let mut buffer = [0; 1024];
-                loop {
-                    match stderr.read(&mut buffer) {
-                        Ok(0) => break, // EOF reached
-                        Ok(n) => {
-                            let output = String::from_utf8_lossy(&buffer[..n]);
-                            if io_mode != IOMode::Mute {
-                                eprint!("{}", output);
-                                io::stderr().flush().unwrap();
-                            }
-                            collected_output.push_str(&output);
-                        }
-                        Err(_) => break,
-                    }
-                }
-            }
+            let stdout = child.stdout.take();
+            let stderr = child.stderr.take();
+            let (stdout_output, stderr_output) = tokio::try_join!(
+                read_output_stream(stdout, io_mode == IOMode::StreamOutput, false),
+                read_output_stream(stderr, io_mode != IOMode::Mute, true),
+            )?;
+            collected_output.push_str(&stdout_output);
+            collected_output.push_str(&stderr_output);
         }
 
-        let status = child.wait().map_err(|e| TtyExecuteError::with_debug(&e))?;
+        let status = child
+            .wait()
+            .await
+            .map_err(|e| TtyExecuteError::with_debug(&e))?;
         if status.success() {
             Ok(collected_output.trim().to_string())
         } else {
@@ -186,7 +168,7 @@ impl Executor {
         }
     }
 
-    pub fn execute_background(
+    pub async fn execute_background(
         &mut self,
         command: &str,
         args: &[&str],
@@ -194,7 +176,7 @@ impl Executor {
     ) -> Result<(), CliError> {
         let abs_dir = fs::canonicalize(dir.unwrap_or(".")).map_err(|e| IOError::with_debug(&e))?;
         self.background_processes.push(
-            std::process::Command::new(command)
+            Command::new(command)
                 .args(args)
                 .current_dir(abs_dir)
                 .stdout(std::process::Stdio::null())
@@ -204,42 +186,76 @@ impl Executor {
         Ok(())
     }
 
-    pub(crate) fn resolve_background_processes(
+    pub(crate) async fn resolve_background_processes(
         &mut self,
         printer: &Printer,
     ) -> Result<(), CliError> {
         let processes = self.background_processes.drain(..).collect::<Vec<_>>();
-        processes
-            .into_iter()
-            .map(|mut process| {
-                let current_result = process.try_wait();
-                match current_result {
-                    Ok(Some(_)) => {}
-                    Ok(None) => {
-                        printer.info("Waiting for background process to finish...");
-                    }
-                    Err(e) => printer.error(&e.to_string()),
+        for mut process in processes {
+            let current_result = process.try_wait();
+            match current_result {
+                Ok(Some(_)) => {}
+                Ok(None) => {
+                    printer.info("Waiting for background process to finish...");
                 }
-                match process.wait() {
-                    // Normally we should check 'status.success()', but it seems
-                    // that sometimes background processes end because of a
-                    // signal. For now, ignore this and only show an error if it
-                    // returned with non-zero exit code.
-                    Ok(status) if status.code().unwrap_or_default() == 0 => Ok(()),
-                    Ok(status) => Err(TtyBackgroundCommandFailed::new(status)),
-                    Err(e) => Err(TtyExecuteError::with_debug(&e)),
-                }
-            })
-            .collect::<Result<_, CliError>>()
-            .map_err(|e| e)
-    }
-
-    pub(crate) fn sudo_is_cached(&self) -> bool {
-        self.execute("sudo", &["-n", "true"], IOMode::Mute).is_ok()
-    }
-
-    pub(crate) fn cache_sudo(&self) -> Result<(), CliError> {
-        self.execute("sudo", &["echo", "-n"], IOMode::Attach)?;
+                Err(e) => printer.error(&e.to_string()),
+            }
+            match process.wait().await {
+                // Normally we should check 'status.success()', but it seems
+                // that sometimes background processes end because of a
+                // signal. For now, ignore this and only show an error if it
+                // returned with non-zero exit code.
+                Ok(status) if status.code().unwrap_or_default() == 0 => {}
+                Ok(status) => return Err(TtyBackgroundCommandFailed::new(status)),
+                Err(e) => return Err(TtyExecuteError::with_debug(&e)),
+            }
+        }
         Ok(())
     }
+
+    pub(crate) async fn sudo_is_cached(&self) -> bool {
+        self.execute("sudo", &["-n", "true"], IOMode::Mute)
+            .await
+            .is_ok()
+    }
+
+    pub(crate) async fn cache_sudo(&self) -> Result<(), CliError> {
+        self.execute("sudo", &["echo", "-n"], IOMode::Attach)
+            .await?;
+        Ok(())
+    }
+}
+
+async fn read_output_stream(
+    stream: Option<impl tokio::io::AsyncRead + Unpin>,
+    echo: bool,
+    to_stderr: bool,
+) -> Result<String, CliError> {
+    let mut stream = match stream {
+        Some(stream) => stream,
+        None => return Ok(String::new()),
+    };
+    let mut buffer = [0; 1024];
+    let mut collected = String::new();
+    loop {
+        let read_bytes = stream
+            .read(&mut buffer)
+            .await
+            .map_err(|e| TtyExecuteError::with_debug(&e))?;
+        if read_bytes == 0 {
+            break;
+        }
+        let output = String::from_utf8_lossy(&buffer[..read_bytes]);
+        if echo {
+            if to_stderr {
+                eprint!("{}", output);
+                let _ = io::stderr().flush();
+            } else {
+                print!("{}", output);
+                let _ = io::stdout().flush();
+            }
+        }
+        collected.push_str(&output);
+    }
+    Ok(collected)
 }

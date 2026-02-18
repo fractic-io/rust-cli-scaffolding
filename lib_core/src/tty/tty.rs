@@ -33,13 +33,13 @@ impl Tty {
         self.printer.subcommand_separator(subcommand);
     }
 
-    pub fn cache_sudo(&self) -> Result<(), CliError> {
-        if !self.executor.sudo_is_cached() {
+    pub async fn cache_sudo(&self) -> Result<(), CliError> {
+        if !self.executor.sudo_is_cached().await {
             self.printer.caution_box(
                 "This script requires sudo. Enter your password to cache credentials for the \
                  duration of the script.",
             );
-            self.executor.cache_sudo()?;
+            self.executor.cache_sudo().await?;
             self.printer.info("Credentials cached.\n");
         }
         Ok(())
@@ -108,8 +108,11 @@ impl Tty {
         })
     }
 
-    pub fn close<T>(mut self, final_result: Result<T, CliError>) {
-        let cleanup = self.executor.resolve_background_processes(&self.printer);
+    pub async fn close<T>(mut self, final_result: Result<T, CliError>) {
+        let cleanup = self
+            .executor
+            .resolve_background_processes(&self.printer)
+            .await;
         match final_result.and(cleanup) {
             Ok(()) => {
                 self.printer.success("SUCCESS");
