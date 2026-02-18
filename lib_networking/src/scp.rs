@@ -5,11 +5,6 @@ use std::path::PathBuf;
 use crate::{ssh_exec_command, SshConnectOptions};
 
 define_cli_error!(
-    InvalidScpRequest,
-    "Failed to send SCP request: {details}.",
-    { details: &str }
-);
-define_cli_error!(
     ScpRemoteFileInfoParseError,
     "Failed to parse remote file info line: '{line}'.",
     { line: &str }
@@ -242,6 +237,7 @@ pub async fn scp_download_file<'a>(
 
 pub async fn scp_download_files<'a>(
     pr: &Printer,
+    ex: &Executor,
     user: &str,
     hostname: &str,
     connect_options: Option<SshConnectOptions<'a>>,
@@ -260,47 +256,21 @@ pub async fn scp_download_files<'a>(
         hostname
     ));
 
-    let connect_opt = connect_options.unwrap_or_default();
-    let port = connect_opt.port_or_default().to_string();
-    let identity_file = connect_opt.identity_file_or_default();
-    let known_hosts_file = connect_opt.known_hosts_file_or_default();
-    let connect_timeout = connect_opt.connect_timeout_or_default();
-    let known_hosts_opt = format!("UserKnownHostsFile={}", known_hosts_file);
-    let connect_timeout_opt = format!("ConnectTimeout={}", connect_timeout.as_secs());
-
-    stream::iter(files.into_iter().map(|(remote_path, local_path)| {
-        let port = port.clone();
-        let identity_file = identity_file.clone();
-        let known_hosts_opt = known_hosts_opt.clone();
-        let connect_timeout_opt = connect_timeout_opt.clone();
-        let source = format!("{}@{}:{}", user, hostname, remote_path);
-        async move {
-            let out = tokio::process::Command::new("scp")
-                .args([
-                    "-P",
-                    &port,
-                    "-i",
-                    &identity_file,
-                    "-p",
-                    "-o",
-                    "StrictHostKeyChecking=accept-new",
-                    "-o",
-                    &known_hosts_opt,
-                    "-o",
-                    &connect_timeout_opt,
-                    &source,
+    stream::iter(
+        files
+            .into_iter()
+            .map(|(remote_path, local_path)| async move {
+                scp_download_file(
+                    ex,
+                    user,
+                    hostname,
+                    connect_options,
+                    &remote_path,
                     &local_path,
-                ])
-                .output()
+                )
                 .await
-                .map_err(|e| InvalidScpRequest::with_debug("failed to execute", &e))?;
-            if out.status.success() {
-                Ok::<(), CliError>(())
-            } else {
-                Err(InvalidScpRequest::new("returned non-zero status"))
-            }
-        }
-    }))
+            }),
+    )
     .buffer_unordered(max_concurrency.max(1))
     .try_collect::<Vec<_>>()
     .await?;
