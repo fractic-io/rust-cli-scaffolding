@@ -29,7 +29,7 @@ define_cli_error!(
     { timeout_sec: u64 }
 );
 
-pub fn close_open_sockets_on_port(pr: &Printer, port: u16) -> Result<(), CliError> {
+pub fn kill_open_sockets_on_port(pr: &Printer, port: u16) -> Result<(), CliError> {
     let af_flags = AddressFamilyFlags::IPV4 | AddressFamilyFlags::IPV6;
     let proto_flags = ProtocolFlags::TCP;
 

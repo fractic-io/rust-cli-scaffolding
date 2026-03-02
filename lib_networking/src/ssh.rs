@@ -7,7 +7,7 @@ use std::os::unix::fs::MetadataExt as _;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use crate::{close_open_sockets_on_port, wait_until_socket_open};
+use crate::{kill_open_sockets_on_port, wait_until_socket_open};
 
 define_cli_error!(
     InvalidSshRequest,
@@ -25,8 +25,8 @@ define_cli_error!(
 );
 define_cli_error!(
     SshPortForwardError,
-    "Failed to forward port {port}.",
-    { port: u16 }
+    "Failed to forward local port {local_port} to remote port {remote_port}.",
+    { local_port: u16, remote_port: u16 }
 );
 define_cli_error!(
     SshfsPermissionError,
@@ -36,15 +36,15 @@ define_cli_error!(
 
 #[derive(Debug)]
 pub enum PortForward {
-    Local,
-    Remote,
+    ToLocal,
+    ToRemote,
 }
 
 impl From<PortForward> for ForwardType {
     fn from(pf: PortForward) -> ForwardType {
         match pf {
-            PortForward::Local => ForwardType::Local,
-            PortForward::Remote => ForwardType::Remote,
+            PortForward::ToLocal => ForwardType::Local,
+            PortForward::ToRemote => ForwardType::Remote,
         }
     }
 }
@@ -147,17 +147,18 @@ pub async fn forward_port<'a>(
     hostname: &str,
     connect_options: Option<SshConnectOptions<'a>>,
     direction: PortForward,
-    forward_port: u16,
+    local_port: u16,
+    remote_port: u16,
     force_close_existing: bool,
 ) -> Result<PortForwardHandle, CliError> {
     match direction {
-        PortForward::Local => pr.info(&format!(
-            "Forwarding '{}:{}' to localhost...",
-            hostname, forward_port
+        PortForward::ToLocal => pr.info(&format!(
+            "Forwarding '{}:{}' to localhost:{}...",
+            hostname, remote_port, local_port
         )),
-        PortForward::Remote => pr.info(&format!(
-            "Forwarding localhost:{} to '{}'...",
-            forward_port, hostname
+        PortForward::ToRemote => pr.info(&format!(
+            "Forwarding localhost:{} to '{}:{}'...",
+            local_port, hostname, remote_port
         )),
     }
 
@@ -168,7 +169,7 @@ pub async fn forward_port<'a>(
     let connect_timeout = connect_opt.connect_timeout_or_default();
 
     if force_close_existing {
-        close_open_sockets_on_port(pr, forward_port)?;
+        kill_open_sockets_on_port(pr, local_port)?;
     }
 
     let session = SessionBuilder::default()
@@ -185,15 +186,15 @@ pub async fn forward_port<'a>(
             direction,
             (
                 std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
-                forward_port,
+                local_port,
             ),
             (
                 std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
-                forward_port,
+                remote_port,
             ),
         )
         .await
-        .map_err(|e| SshPortForwardError::with_debug(forward_port, &e))?;
+        .map_err(|e| SshPortForwardError::with_debug(local_port, remote_port, &e))?;
 
     Ok(PortForwardHandle { _session: session })
 }
@@ -243,12 +244,13 @@ pub async fn ssh_cache_identity(
         // NOTE: 'ssh-add -l' returns error code 1 if the agent has no
         // identities, so just treat an error as empty.
         .unwrap_or_default();
-    let search_query = ex.execute(
-        "ssh-keygen",
-        &["-lf", &identity_file.display().to_string()],
-        IOMode::Silent,
-    )
-    .await?;
+    let search_query = ex
+        .execute(
+            "ssh-keygen",
+            &["-lf", &identity_file.display().to_string()],
+            IOMode::Silent,
+        )
+        .await?;
     let search_query_sha_component = search_query.split_whitespace().nth(1).ok_or_else(|| {
         CriticalError::new(&format!(
             "could not find SHA component of ssh-keygen spec: '{}'.",
