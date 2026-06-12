@@ -24,6 +24,11 @@ define_cli_error!(
     "Failed to establish a connection to the SSH server."
 );
 define_cli_error!(
+    SshHostKeyChanged,
+    "SSH host key for '{hostname}' changed in known hosts file '{known_hosts_file}'.",
+    { hostname: &str, known_hosts_file: &str }
+);
+define_cli_error!(
     SshPortForwardError,
     "Failed to forward local port {local_port} to remote port {remote_port}.",
     { local_port: u16, remote_port: u16 }
@@ -110,6 +115,9 @@ pub async fn wait_until_ssh_available<'a>(
         .as_ref()
         .and_then(|co| co.port)
         .unwrap_or(22);
+    let known_hosts_file = connect_options
+        .unwrap_or_default()
+        .known_hosts_file_or_default();
 
     // First, wait for socket to be open.
     let ip = wait_until_socket_open(pr, hostname, port).await?;
@@ -125,6 +133,13 @@ pub async fn wait_until_ssh_available<'a>(
                     status_bar.important("Connected.");
                     return Ok(ip);
                 }
+                Err(e) if is_host_key_changed(&e) => {
+                    return Err(SshHostKeyChanged::with_debug(
+                        hostname,
+                        &known_hosts_file,
+                        &e,
+                    ));
+                }
                 Err(e) => {
                     status_bar.info(&format!("{}; {}", e.message(), "Retrying..."));
                     last_error = Some(e);
@@ -138,6 +153,21 @@ pub async fn wait_until_ssh_available<'a>(
         ))
     })
     .await
+}
+
+fn is_host_key_changed(error: &CliError) -> bool {
+    error
+        .debug()
+        .map(|debug| stderr_indicates_host_key_changed(debug))
+        .unwrap_or(false)
+}
+
+fn stderr_indicates_host_key_changed(stderr: &str) -> bool {
+    let stderr = stderr.to_lowercase();
+    stderr.contains("remote host identification has changed")
+        || stderr.contains("host key for")
+            && stderr.contains("has changed")
+            && stderr.contains("strict checking")
 }
 
 /// The port forwarding remains active until the returned PortForwardHandle is dropped.
@@ -439,5 +469,33 @@ pub async fn sshfs<'a>(
         Ok(())
     } else {
         Err(SshfsPermissionError::new(local_path))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stderr_indicates_host_key_changed;
+
+    #[test]
+    fn host_key_changed_error_is_terminal() {
+        let stderr = r#"
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+Host key for [localhost]:45678 has changed and you have requested strict checking.
+Host key verification failed.
+"#;
+
+        assert!(stderr_indicates_host_key_changed(stderr));
+    }
+
+    #[test]
+    fn ordinary_connection_failures_are_not_host_key_changes() {
+        assert!(!stderr_indicates_host_key_changed(
+            "ssh: connect to host localhost port 45678: Connection refused"
+        ));
+        assert!(!stderr_indicates_host_key_changed(
+            "localhost: Permission denied (publickey)."
+        ));
     }
 }
