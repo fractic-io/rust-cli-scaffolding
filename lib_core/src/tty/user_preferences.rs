@@ -112,7 +112,7 @@ impl UserPreferences {
         let default_value = self.get_pref::<String>(key);
 
         let _ = Notification::new()
-            .summary("Input required")
+            .summary("Input Required")
             .body(prompt)
             .show();
 

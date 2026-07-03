@@ -39,7 +39,8 @@ impl Tty {
                 "This script requires sudo. Enter your password to cache credentials for the \
                  duration of the script.",
             );
-            self.printer.notify("Input required", "Sudo password");
+            self.printer
+                .notify("Input Required", "Enter sudo password...");
             self.executor.cache_sudo().await?;
             self.printer.info("Credentials cached.\n");
         }

@@ -80,13 +80,13 @@ impl Printer {
     }
 
     pub fn yes_no(&self, prompt: &str) -> Result<bool, CliError> {
-        self.notify("Input required", prompt);
+        self.notify("Input Required", prompt);
         yes_no(prompt)
     }
 
     pub fn continue_after_enter(&self, message: Option<&str>) -> Result<(), CliError> {
         let message = message.unwrap_or("Press Enter to continue...");
-        self.notify("Input required", message);
+        self.notify("Input Required", message);
         print!("{message}");
         std::io::stdout()
             .flush()

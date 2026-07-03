@@ -293,7 +293,7 @@ pub async fn ssh_cache_identity(
             "Caching SSH identity file '{}'...",
             identity_file.display()
         ));
-        pr.notify("Input required", "SSH passphrase");
+        pr.notify("Input Required", "Enter SSH passphrase...");
         ex.execute(
             "ssh-add",
             &[
