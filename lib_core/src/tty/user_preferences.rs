@@ -5,6 +5,7 @@ use std::{
     path::PathBuf,
 };
 
+use notify_rust::Notification;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 
@@ -109,6 +110,11 @@ impl UserPreferences {
 
     pub fn ask_pref(&mut self, key: &str, prompt: &str) -> Result<Option<String>, CliError> {
         let default_value = self.get_pref::<String>(key);
+
+        let _ = Notification::new()
+            .summary("Input Required")
+            .body(prompt)
+            .show();
 
         if let Some(ref default_value) = default_value {
             print!("{} [{}]: ", prompt, default_value);

@@ -7,6 +7,8 @@ use std::{
 use colored::{ColoredString, Colorize as _};
 use notify_rust::Notification;
 
+use crate::{continue_after_enter, yes_no, CliError};
+
 #[derive(Debug, Clone)]
 pub struct Printer;
 
@@ -75,6 +77,19 @@ impl Printer {
 
     pub fn success(&self, message: &str) {
         println!("{}", message.green());
+    }
+
+    pub fn yes_no(&self, prompt: &str) -> Result<bool, CliError> {
+        self.notify("Input Required", prompt);
+        yes_no(prompt)
+    }
+
+    pub fn continue_after_enter(&self, message: Option<&str>) -> Result<(), CliError> {
+        self.notify(
+            "Input Required",
+            message.unwrap_or("Press Enter to continue..."),
+        );
+        continue_after_enter(message)
     }
 
     /// Best effort. Does not fail if notifications are not supported.

@@ -39,6 +39,8 @@ impl Tty {
                 "This script requires sudo. Enter your password to cache credentials for the \
                  duration of the script.",
             );
+            self.printer
+                .notify("Input Required", "Enter sudo password...");
             self.executor.cache_sudo().await?;
             self.printer.info("Credentials cached.\n");
         }
@@ -109,7 +111,10 @@ impl Tty {
     }
 
     pub async fn close<T>(mut self, final_result: Result<T, CliError>) {
-        let cleanup = self.executor.resolve_background_processes(&self.printer).await;
+        let cleanup = self
+            .executor
+            .resolve_background_processes(&self.printer)
+            .await;
         match final_result.and(cleanup) {
             Ok(()) => {
                 self.printer.success("SUCCESS");

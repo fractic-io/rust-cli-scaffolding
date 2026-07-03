@@ -21,8 +21,8 @@ pub fn yes_no(prompt: &str) -> Result<bool, CliError> {
     }
 }
 
-pub fn continue_after_enter() -> Result<(), CliError> {
-    print!("Press Enter to continue...");
+pub fn continue_after_enter(message: Option<&str>) -> Result<(), CliError> {
+    print!("{}", message.unwrap_or("Press Enter to continue..."));
     std::io::stdout()
         .flush()
         .map_err(|e| IOError::with_debug(&e))?;
@@ -34,8 +34,11 @@ pub fn continue_after_enter() -> Result<(), CliError> {
 }
 
 // Returns true if the user pressed Enter, false if the timeout expired.
-pub async fn continue_after_enter_with_timeout(t: Duration) -> Result<bool, CliError> {
-    print!("Press Enter to continue...");
+pub async fn continue_after_enter_with_timeout(
+    t: Duration,
+    message: Option<&str>,
+) -> Result<bool, CliError> {
+    print!("{}", message.unwrap_or("Press Enter to continue..."));
     std::io::stdout()
         .flush()
         .map_err(|e| IOError::with_debug(&e))?;
