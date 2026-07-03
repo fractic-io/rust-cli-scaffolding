@@ -21,18 +21,6 @@ pub fn yes_no(prompt: &str) -> Result<bool, CliError> {
     }
 }
 
-pub fn continue_after_enter() -> Result<(), CliError> {
-    print!("Press Enter to continue...");
-    std::io::stdout()
-        .flush()
-        .map_err(|e| IOError::with_debug(&e))?;
-    let mut buffer = String::new();
-    std::io::stdin()
-        .read_line(&mut buffer)
-        .map_err(|e| IOError::with_debug(&e))?;
-    Ok(())
-}
-
 // Returns true if the user pressed Enter, false if the timeout expired.
 pub async fn continue_after_enter_with_timeout(t: Duration) -> Result<bool, CliError> {
     print!("Press Enter to continue...");

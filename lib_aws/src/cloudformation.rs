@@ -11,7 +11,7 @@ use aws_sdk_cloudformation::{
     Client,
 };
 use aws_smithy_runtime_api::client::waiters::error::WaiterError;
-use lib_core::{continue_after_enter, define_cli_error, CliError, Printer};
+use lib_core::{define_cli_error, CliError, Printer};
 
 use crate::shared_config::config_from_profile;
 
@@ -181,7 +181,7 @@ pub async fn deploy_stack_from_s3(
                         "Changeset '{}' created successfully. Please manually apply it in AWS Console.",
                         changeset_name
                     ));
-                    continue_after_enter()?;
+                    pr.continue_after_enter(None)?;
                     pr.info("Polling until update complete...");
                     client
                         .wait_until_stack_update_complete()
