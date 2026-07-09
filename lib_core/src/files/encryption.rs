@@ -1,5 +1,5 @@
 use aes_gcm::aead::Aead;
-use aes_gcm::{Aes256Gcm, Key, KeyInit as _, Nonce};
+use aes_gcm::{Aes256Gcm, KeyInit as _, Nonce};
 use argon2::Argon2;
 use rand::Rng as _;
 use sha2::{Digest, Sha256};
@@ -39,11 +39,12 @@ where
     // Generate a random 12-byte nonce.
     let mut nonce_bytes = [0u8; 12];
     rng.fill_bytes(&mut nonce_bytes);
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    let nonce = <&Nonce<_>>::try_from(&nonce_bytes[..])
+        .map_err(|e| FileEncryptionError::with_debug("invalid nonce length", &e))?;
 
     // Create an encryption key and cipher instance.
-    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
-    let cipher = Aes256Gcm::new(key);
+    let cipher = Aes256Gcm::new_from_slice(&key_bytes)
+        .map_err(|e| FileEncryptionError::with_debug("invalid key length", &e))?;
 
     // Encrypt the data.
     let ciphertext = cipher
@@ -85,7 +86,8 @@ where
     let mut nonce_bytes = [0u8; 12];
     file.read_exact(&mut nonce_bytes)
         .map_err(|e| FileEncryptionError::with_debug("failed to read nonce", &e))?;
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    let nonce = <&Nonce<_>>::try_from(&nonce_bytes[..])
+        .map_err(|e| FileEncryptionError::with_debug("invalid nonce length", &e))?;
 
     // Read the hash from the file.
     let mut hash_in_file = [0u8; 32];
@@ -99,8 +101,8 @@ where
 
     // Derive the key using the password and salt.
     let key_bytes = derive_key(password, &salt)?;
-    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
-    let cipher = Aes256Gcm::new(key);
+    let cipher = Aes256Gcm::new_from_slice(&key_bytes)
+        .map_err(|e| FileEncryptionError::with_debug("invalid key length", &e))?;
 
     // Decrypt the data.
     let plaintext = cipher
