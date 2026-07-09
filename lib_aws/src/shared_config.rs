@@ -19,7 +19,7 @@ pub(crate) async fn config_from_profile(
         .operation_timeout(Duration::from_secs(3600))
         .build();
 
-    aws_config::defaults(BehaviorVersion::v2026_01_12())
+    aws_config::defaults(BehaviorVersion::latest())
         .region(Region::new(region.into()))
         .timeout_config(timeout_config)
         .credentials_provider(
