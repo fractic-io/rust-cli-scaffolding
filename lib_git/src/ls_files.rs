@@ -72,7 +72,7 @@ pub fn list_git_tracked_files<P: AsRef<Path>>(
         .statuses(Some(&mut status_opts))
         .map_err(|e| FailedToFetchStatuses::with_debug(&e))?;
     for entry in statuses.iter() {
-        if let Some(path_str) = entry.path() {
+        if let Ok(path_str) = entry.path() {
             let path = repo_root.join(path_str);
             let include = match filter_pathbufs {
                 Some(ref subpaths) => subpaths.iter().any(|s| path.starts_with(s)),

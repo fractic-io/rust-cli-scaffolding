@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-bollard = "^0.18.1"
+bollard = "^0.21.0"
 futures-util = "^0.3.31"
 lib_core = { path = "../lib_core" }
 lib_aws = { path = "../lib_aws" }

@@ -1,4 +1,4 @@
-use bollard::{auth::DockerCredentials, image::PushImageOptions, Docker};
+use bollard::{auth::DockerCredentials, query_parameters::PushImageOptions, Docker};
 use futures_util::TryStreamExt as _;
 use lib_aws::EcrCredentials;
 use lib_core::{define_cli_error, CliError, Printer};
@@ -14,7 +14,7 @@ pub async fn push_docker_image_to_ecr(
     credentials: EcrCredentials,
 ) -> Result<(), CliError> {
     let push_opts = PushImageOptions {
-        tag,
+        tag: Some(tag.to_string()),
         ..Default::default()
     };
 
@@ -41,11 +41,10 @@ pub async fn push_docker_image_to_ecr(
             .map_err(|e| DockerPushError::with_debug(&e))?
         {
             if let Some(status) = chunk.status {
-                status_bar.info(&format!(
-                    "{}; {}",
-                    status,
-                    chunk.progress.unwrap_or_default()
-                ));
+                status_bar.info(&match chunk.progress_detail {
+                    Some(progress) => format!("{}; {:?}", status, progress),
+                    None => status,
+                });
             }
         }
         Ok::<(), CliError>(())

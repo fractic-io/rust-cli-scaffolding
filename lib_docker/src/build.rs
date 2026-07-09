@@ -1,7 +1,8 @@
 use std::{io::Write as _, path::Path};
 
 use bollard::{
-    image::{BuildImageOptions, TagImageOptions},
+    body_full,
+    query_parameters::{BuildImageOptions, TagImageOptions},
     Docker,
 };
 use futures_util::TryStreamExt as _;
@@ -70,12 +71,13 @@ pub async fn build_docker_image_with_bullard<P: AsRef<Path>>(
     let docker =
         Docker::connect_with_local_defaults().map_err(|e| DockerConnectionError::with_debug(&e))?;
     let build_opts = BuildImageOptions {
-        dockerfile: dockerfile_name,
-        t: image_name,
+        dockerfile: dockerfile_name.to_string(),
+        t: Some(image_name.to_string()),
         rm: true,
         ..Default::default()
     };
-    let mut build_stream = docker.build_image(build_opts, None, Some(bundle_bytes.into()));
+    let mut build_stream =
+        docker.build_image(build_opts, None, Some(body_full(bundle_bytes.into())));
     while let Some(chunk) = build_stream
         .try_next()
         .await
@@ -128,8 +130,8 @@ pub async fn tag_docker_image_for_ecr(
     tag: &str,
 ) -> Result<(), CliError> {
     let tag_opts = TagImageOptions {
-        repo: ecr_repo,
-        tag,
+        repo: Some(ecr_repo.to_string()),
+        tag: Some(tag.to_string()),
     };
     pr.info(&format!(
         "Tagging image '{}' as '{}:{}'...",

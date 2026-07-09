@@ -1,8 +1,7 @@
 use aes_gcm::aead::Aead;
 use aes_gcm::{Aes256Gcm, Key, KeyInit as _, Nonce};
 use argon2::Argon2;
-use rand::RngCore;
-use rand_core::OsRng;
+use rand::Rng as _;
 use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::{Read as _, Write};
@@ -30,7 +29,8 @@ where
 {
     // Generate a random 16-byte salt.
     let mut salt = [0u8; 16];
-    OsRng.fill_bytes(&mut salt);
+    let mut rng = rand::rng();
+    rng.fill_bytes(&mut salt);
 
     // Derive the key using the password and salt.
     let key_bytes = derive_key(password, &salt)?;
@@ -38,7 +38,7 @@ where
 
     // Generate a random 12-byte nonce.
     let mut nonce_bytes = [0u8; 12];
-    OsRng.fill_bytes(&mut nonce_bytes);
+    rng.fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
 
     // Create an encryption key and cipher instance.

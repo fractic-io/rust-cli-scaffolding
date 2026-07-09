@@ -5,13 +5,14 @@ use std::{
 };
 
 use hickory_client::{
-    client::{AsyncClient, ClientHandle as _},
-    proto::iocompat::AsyncIoTokioAsStd,
-    rr::{DNSClass, Name, RData, RecordType},
-    tcp::TcpClientStream,
+    client::{Client, ClientHandle as _},
+    proto::{
+        rr::{DNSClass, Name, RData, RecordType},
+        runtime::TokioRuntimeProvider,
+        tcp::TcpClientStream,
+    },
 };
 use lib_core::{define_cli_error, CliError};
-use tokio::net::TcpStream;
 
 define_cli_error!(
     DnsConnectionError,
@@ -64,9 +65,10 @@ async fn query(address: &str, record_type: RecordType) -> Result<String, CliErro
             }
         };
 
-        let (stream, sender) = TcpClientStream::<AsyncIoTokioAsStd<TcpStream>>::new(socket_address);
+        let (stream, sender) =
+            TcpClientStream::new(socket_address, None, None, TokioRuntimeProvider::new());
 
-        let (mut client, bg) = match AsyncClient::new(stream, sender, None).await {
+        let (mut client, bg) = match Client::new(stream, sender, None).await {
             Ok(result) => result,
             Err(e) => {
                 last_error = Some(DnsConnectionError::with_debug(
@@ -89,14 +91,14 @@ async fn query(address: &str, record_type: RecordType) -> Result<String, CliErro
 
         let resolved_value = match record_type {
             RecordType::A => response.answers().iter().find_map(|record| {
-                if let Some(RData::A(ip)) = record.data() {
+                if let RData::A(ip) = record.data() {
                     Some(ip.to_string())
                 } else {
                     None
                 }
             }),
             RecordType::CNAME => response.answers().iter().find_map(|record| {
-                if let Some(RData::CNAME(cname)) = record.data() {
+                if let RData::CNAME(cname) = record.data() {
                     Some(cname.to_string())
                 } else {
                     None
