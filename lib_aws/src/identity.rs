@@ -14,7 +14,7 @@ define_cli_error!(
 
 define_cli_error!(
     AwsProfileCheckFailed,
-    "Could not verify AWS CLI profile {profile}. This looks like an AWS/network error, not necessarily an expired SSO login.",
+    "Could not verify AWS CLI profile {profile}.",
     { profile: &str }
 );
 
