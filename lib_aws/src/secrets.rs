@@ -59,20 +59,19 @@ pub async fn get_secret_subkeys(
     subkeys: HashSet<String>,
 ) -> Result<HashMap<String, String>, CliError> {
     let raw = get_secret(profile, region, secret_id).await?;
-    let secrets_map = serde_json::from_str::<HashMap<String, String>>(&raw).map_err(|e| {
-        FailedToFetchAwsSecret::with_debug(secret_id, region, "could not parse JSON", &e)
-    })?;
+    let secrets_map =
+        serde_json::from_str::<HashMap<String, serde_json::Value>>(&raw).map_err(|e| {
+            FailedToFetchAwsSecret::with_debug(secret_id, region, "could not parse JSON", &e)
+        })?;
 
     let result = secrets_map
         .into_iter()
         .filter_map(|(k, v)| {
-            if subkeys.contains(&k) {
-                Some((k, v))
-            } else {
-                None
-            }
+            subkeys
+                .contains(&k)
+                .then(|| stringify_secret_value(v, secret_id, region).map(|value| (k, value)))
         })
-        .collect::<HashMap<_, _>>();
+        .collect::<Result<HashMap<_, _>, CliError>>()?;
 
     if result.len() != subkeys.len() {
         let missing_keys = subkeys
@@ -87,6 +86,24 @@ pub async fn get_secret_subkeys(
     }
 
     Ok(result)
+}
+
+fn stringify_secret_value(
+    value: serde_json::Value,
+    secret_id: &str,
+    region: &str,
+) -> Result<String, CliError> {
+    match value {
+        serde_json::Value::String(value) => Ok(value),
+        value => serde_json::to_string(&value).map_err(|e| {
+            FailedToFetchAwsSecret::with_debug(
+                secret_id,
+                region,
+                "could not serialize JSON value",
+                &e,
+            )
+        }),
+    }
 }
 
 pub async fn get_secret_subkey(
@@ -105,6 +122,34 @@ pub async fn get_secret_subkey(
     .into_values()
     .next()
     .unwrap())
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn stringify_secret_value_preserves_strings() {
+        assert_eq!(
+            stringify_secret_value(json!("plain"), "secret", "region").unwrap(),
+            "plain"
+        );
+    }
+
+    #[test]
+    fn stringify_secret_value_serializes_structured_values() {
+        assert_eq!(
+            stringify_secret_value(
+                json!({"active": "new", "keys": {"new": "abc"}}),
+                "secret",
+                "region"
+            )
+            .unwrap(),
+            r#"{"active":"new","keys":{"new":"abc"}}"#
+        );
+    }
 }
 
 pub async fn secret_replica_regions(
