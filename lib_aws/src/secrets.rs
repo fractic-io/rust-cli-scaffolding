@@ -59,22 +59,22 @@ pub async fn get_secret(profile: &str, region: &str, secret_id: &str) -> Result<
     }
 }
 
-pub async fn get_secret_subkeys(
+pub async fn get_secret_subkeys<T: DeserializeOwned>(
     profile: &str,
     region: &str,
     secret_id: &str,
     subkeys: HashSet<String>,
-) -> Result<HashMap<String, serde_json::Value>, CliError> {
+) -> Result<HashMap<String, T>, CliError> {
     let raw = get_secret(profile, region, secret_id).await?;
-    select_secret_subkeys(&raw, secret_id, region, &subkeys)
+    parse_secret_subkeys(&raw, secret_id, region, &subkeys)
 }
 
-fn select_secret_subkeys(
+fn parse_secret_subkeys<T: DeserializeOwned>(
     raw: &str,
     secret_id: &str,
     region: &str,
     subkeys: &HashSet<String>,
-) -> Result<HashMap<String, serde_json::Value>, CliError> {
+) -> Result<HashMap<String, T>, CliError> {
     let secrets_map =
         serde_json::from_str::<HashMap<String, serde_json::Value>>(raw).map_err(|e| {
             FailedToFetchAwsSecret::with_debug(secret_id, region, "could not parse JSON", &e)
@@ -97,16 +97,24 @@ fn select_secret_subkeys(
         ));
     }
 
-    Ok(result)
+    result
+        .into_iter()
+        .map(|(subkey, value)| {
+            let value = serde_json::from_value(value).map_err(|e| {
+                FailedToDeserializeAwsSecretSubkey::with_debug(secret_id, region, &subkey, &e)
+            })?;
+            Ok((subkey, value))
+        })
+        .collect()
 }
 
-pub async fn get_secret_subkey(
+pub async fn get_secret_subkey<T: DeserializeOwned>(
     profile: &str,
     region: &str,
     secret_id: &str,
     subkey: &str,
-) -> Result<serde_json::Value, CliError> {
-    Ok(get_secret_subkeys(
+) -> Result<T, CliError> {
+    Ok(get_secret_subkeys::<T>(
         profile,
         region,
         secret_id,
@@ -118,16 +126,6 @@ pub async fn get_secret_subkey(
     .unwrap())
 }
 
-pub fn deserialize_secret_value<T: DeserializeOwned>(
-    value: serde_json::Value,
-    secret_id: &str,
-    region: &str,
-    subkey: &str,
-) -> Result<T, CliError> {
-    serde_json::from_value(value)
-        .map_err(|e| FailedToDeserializeAwsSecretSubkey::with_debug(secret_id, region, subkey, &e))
-}
-
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -135,8 +133,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn selected_subkeys_preserve_json_types() {
-        let selected = select_secret_subkeys(
+    fn selected_subkeys_can_be_returned_as_json_values() {
+        let selected = parse_secret_subkeys::<serde_json::Value>(
             r#"{"plain":"value","structured":{"active":"new"}}"#,
             "secret",
             "region",
@@ -149,20 +147,16 @@ mod tests {
     }
 
     #[test]
-    fn secret_values_deserialize_into_the_requested_type() {
+    fn selected_subkeys_deserialize_into_the_requested_type() {
         assert_eq!(
-            deserialize_secret_value::<String>(json!("value"), "secret", "region", "key").unwrap(),
-            "value"
-        );
-        assert_eq!(
-            deserialize_secret_value::<HashMap<String, String>>(
-                json!({"active": "new"}),
+            parse_secret_subkeys::<String>(
+                r#"{"key":"value"}"#,
                 "secret",
                 "region",
-                "key"
+                &HashSet::from(["key".to_owned()]),
             )
             .unwrap(),
-            HashMap::from([("active".to_owned(), "new".to_owned())])
+            HashMap::from([("key".to_owned(), "value".to_owned())])
         );
     }
 }
