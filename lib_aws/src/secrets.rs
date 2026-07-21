@@ -5,6 +5,7 @@ use aws_sdk_secretsmanager::{
     Client,
 };
 use lib_core::{define_cli_error, CliError, Printer};
+use serde::de::DeserializeOwned;
 
 use crate::shared_config::config_from_profile;
 
@@ -23,6 +24,12 @@ define_cli_error!(
 define_cli_error!(
     AwsSecretsManagerError,
     "Error running AWS Secrets Manager command."
+);
+
+define_cli_error!(
+    FailedToDeserializeAwsSecretSubkey,
+    "Secret '{secret_id}' in region '{region}' contains an invalid value for subkey '{subkey}'.",
+    { secret_id: &str, region: &str, subkey: &str }
 );
 
 pub async fn secret_exists(profile: &str, region: &str, secret_id: &str) -> Result<bool, CliError> {
@@ -57,21 +64,26 @@ pub async fn get_secret_subkeys(
     region: &str,
     secret_id: &str,
     subkeys: HashSet<String>,
-) -> Result<HashMap<String, String>, CliError> {
+) -> Result<HashMap<String, serde_json::Value>, CliError> {
     let raw = get_secret(profile, region, secret_id).await?;
+    select_secret_subkeys(&raw, secret_id, region, &subkeys)
+}
+
+fn select_secret_subkeys(
+    raw: &str,
+    secret_id: &str,
+    region: &str,
+    subkeys: &HashSet<String>,
+) -> Result<HashMap<String, serde_json::Value>, CliError> {
     let secrets_map =
-        serde_json::from_str::<HashMap<String, serde_json::Value>>(&raw).map_err(|e| {
+        serde_json::from_str::<HashMap<String, serde_json::Value>>(raw).map_err(|e| {
             FailedToFetchAwsSecret::with_debug(secret_id, region, "could not parse JSON", &e)
         })?;
 
     let result = secrets_map
         .into_iter()
-        .filter_map(|(k, v)| {
-            subkeys
-                .contains(&k)
-                .then(|| stringify_secret_value(v, secret_id, region).map(|value| (k, value)))
-        })
-        .collect::<Result<HashMap<_, _>, CliError>>()?;
+        .filter(|(key, _)| subkeys.contains(key))
+        .collect::<HashMap<_, _>>();
 
     if result.len() != subkeys.len() {
         let missing_keys = subkeys
@@ -88,30 +100,12 @@ pub async fn get_secret_subkeys(
     Ok(result)
 }
 
-fn stringify_secret_value(
-    value: serde_json::Value,
-    secret_id: &str,
-    region: &str,
-) -> Result<String, CliError> {
-    match value {
-        serde_json::Value::String(value) => Ok(value),
-        value => serde_json::to_string(&value).map_err(|e| {
-            FailedToFetchAwsSecret::with_debug(
-                secret_id,
-                region,
-                "could not serialize JSON value",
-                &e,
-            )
-        }),
-    }
-}
-
 pub async fn get_secret_subkey(
     profile: &str,
     region: &str,
     secret_id: &str,
     subkey: &str,
-) -> Result<String, CliError> {
+) -> Result<serde_json::Value, CliError> {
     Ok(get_secret_subkeys(
         profile,
         region,
@@ -124,6 +118,16 @@ pub async fn get_secret_subkey(
     .unwrap())
 }
 
+pub fn deserialize_secret_value<T: DeserializeOwned>(
+    value: serde_json::Value,
+    secret_id: &str,
+    region: &str,
+    subkey: &str,
+) -> Result<T, CliError> {
+    serde_json::from_value(value)
+        .map_err(|e| FailedToDeserializeAwsSecretSubkey::with_debug(secret_id, region, subkey, &e))
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -131,23 +135,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn stringify_secret_value_preserves_strings() {
-        assert_eq!(
-            stringify_secret_value(json!("plain"), "secret", "region").unwrap(),
-            "plain"
-        );
+    fn selected_subkeys_preserve_json_types() {
+        let selected = select_secret_subkeys(
+            r#"{"plain":"value","structured":{"active":"new"}}"#,
+            "secret",
+            "region",
+            &HashSet::from(["plain".to_owned(), "structured".to_owned()]),
+        )
+        .unwrap();
+
+        assert_eq!(selected.get("plain"), Some(&json!("value")));
+        assert_eq!(selected.get("structured"), Some(&json!({"active": "new"})));
     }
 
     #[test]
-    fn stringify_secret_value_serializes_structured_values() {
+    fn secret_values_deserialize_into_the_requested_type() {
         assert_eq!(
-            stringify_secret_value(
-                json!({"active": "new", "keys": {"new": "abc"}}),
+            deserialize_secret_value::<String>(json!("value"), "secret", "region", "key").unwrap(),
+            "value"
+        );
+        assert_eq!(
+            deserialize_secret_value::<HashMap<String, String>>(
+                json!({"active": "new"}),
                 "secret",
-                "region"
+                "region",
+                "key"
             )
             .unwrap(),
-            r#"{"active":"new","keys":{"new":"abc"}}"#
+            HashMap::from([("active".to_owned(), "new".to_owned())])
         );
     }
 }
