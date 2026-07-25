@@ -2,6 +2,8 @@ use std::{collections::HashMap, path::Path};
 
 use lib_core::{ln_s, mkdir_p, rm_rf, CliError, ExecuteOptions, Executor, IOMode, Printer};
 
+use crate::lambda_build::lambda_build_env;
+
 pub async fn sam_build(
     pr: &Printer,
     ex: &Executor,
@@ -10,7 +12,7 @@ pub async fn sam_build(
 ) -> Result<(), CliError> {
     pr.info("Building with SAM...");
 
-    let mut env = Vec::new();
+    let mut env = lambda_build_env();
 
     if let Ok(target_dir) = std::env::var("CARGO_LAMBDA_TARGET_DIR") {
         pr.info(&format!("Using custom target dir: '{}'.", target_dir));
@@ -35,10 +37,6 @@ pub async fn sam_build(
             "CARGO_PROFILE_DEV_DEBUG".to_string(),
             "line-tables-only".to_string(),
         ));
-        // It's also possible to directly set the optimization level, but in
-        // experimentation this didn't make much of a difference, or actually
-        // made the binaries larger.
-        // env.push(("CARGO_PROFILE_DEV_OPT_LEVEL".to_string(), "s".to_string()));
     }
 
     // Call sam build with raised ulimit to avoid ProcessFdQuotaExceeded
