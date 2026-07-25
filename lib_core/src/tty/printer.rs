@@ -94,6 +94,12 @@ impl Printer {
 
     /// Best effort. Does not fail if notifications are not supported.
     pub fn notify(&self, title: &str, message: &str) {
+        if ["SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY"]
+            .iter()
+            .any(|key| std::env::var_os(key).is_some())
+        {
+            return;
+        }
         let _ = Notification::new().summary(title).body(message).show();
     }
 }
