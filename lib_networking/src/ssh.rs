@@ -92,6 +92,9 @@ impl<'a> SshConnectOptions<'a> {
 pub struct SshAttachOptions<'a> {
     pub command: Option<&'a str>,
     pub inactivity_timeout: Option<Duration>,
+    /// Extra arguments for `ssh`, inserted before the destination (for example
+    /// a `-R` forward that should live as long as the interactive session).
+    pub ssh_args: &'a [String],
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -374,7 +377,7 @@ pub async fn ssh_attach<'a>(
         (None, None) => "exec $SHELL -l".to_string(),
     };
 
-    let args = vec![
+    let mut args = vec![
         "-p",
         &port,
         "-i",
@@ -385,10 +388,9 @@ pub async fn ssh_attach<'a>(
         &known_hosts_opt,
         "-o",
         &connect_timeout_opt,
-        &address,
-        "-t",
-        &command,
     ];
+    args.extend(attach_opt.ssh_args.iter().map(String::as_str));
+    args.extend(["-t", &address, &command]);
 
     ex.execute("ssh", &args, IOMode::Attach).await?;
     Ok(())
