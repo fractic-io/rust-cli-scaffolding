@@ -28,4 +28,3 @@ per AWS service.
   (`ex.execute…`), never `std::process::Command`.
 - A signature change ripples into every `util/` in the workspace: title it
   `Breaking: …`.
-- Commit / PR titles: `[core] …`, `[aws] …`, `[networking] …`.
