@@ -106,6 +106,47 @@ impl Printer {
     }
 }
 
+impl StatusBarPrinter {
+    fn new() -> Self {
+        StatusBarPrinter {
+            out: std::io::stdout().lock(),
+        }
+    }
+
+    fn write(&mut self, status: ColoredString) {
+        write!(self.out, "\r\x1b[2K").unwrap();
+        write!(self.out, "\r{}", status).unwrap();
+        self.out.flush().unwrap();
+    }
+
+    pub fn info(&mut self, status: &str) {
+        self.write(status.dimmed());
+    }
+
+    pub fn important(&mut self, status: &str) {
+        self.write(status.bright_blue());
+    }
+
+    pub fn warn(&mut self, status: &str) {
+        self.write(status.yellow());
+    }
+
+    pub fn error(&mut self, status: &str) {
+        self.write(status.red());
+    }
+
+    fn close(&mut self) {
+        write!(self.out, "\n").unwrap();
+        self.out.flush().unwrap();
+    }
+}
+
+impl Drop for StatusBarPrinter {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+
 // Internal: Notifications.
 // ----------------------------------------------------------------------------
 
@@ -156,45 +197,4 @@ fn relay_notification(title: &str, message: &str) {
 fn on_path(binary: &str) -> bool {
     std::env::var_os("PATH")
         .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(binary).is_file()))
-}
-
-impl StatusBarPrinter {
-    fn new() -> Self {
-        StatusBarPrinter {
-            out: std::io::stdout().lock(),
-        }
-    }
-
-    fn write(&mut self, status: ColoredString) {
-        write!(self.out, "\r\x1b[2K").unwrap();
-        write!(self.out, "\r{}", status).unwrap();
-        self.out.flush().unwrap();
-    }
-
-    pub fn info(&mut self, status: &str) {
-        self.write(status.dimmed());
-    }
-
-    pub fn important(&mut self, status: &str) {
-        self.write(status.bright_blue());
-    }
-
-    pub fn warn(&mut self, status: &str) {
-        self.write(status.yellow());
-    }
-
-    pub fn error(&mut self, status: &str) {
-        self.write(status.red());
-    }
-
-    fn close(&mut self) {
-        write!(self.out, "\n").unwrap();
-        self.out.flush().unwrap();
-    }
-}
-
-impl Drop for StatusBarPrinter {
-    fn drop(&mut self) {
-        self.close();
-    }
 }
