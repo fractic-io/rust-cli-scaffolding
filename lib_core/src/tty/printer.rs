@@ -93,15 +93,69 @@ impl Printer {
     }
 
     /// Best effort. Does not fail if notifications are not supported.
+    ///
+    /// Goes through `ctrl notify send` when a `ctrl` binary is on `PATH`
+    /// (it forwards over SSH to the desktop the user sits at), otherwise
+    /// shows the notification directly, and not at all inside SSH.
     pub fn notify(&self, title: &str, message: &str) {
-        if ["SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY"]
-            .iter()
-            .any(|key| std::env::var_os(key).is_some())
-        {
-            return;
+        if std::env::var_os(NOTIFY_RELAYED_ENV).is_none() && on_path(NOTIFY_RELAY) {
+            relay_notification(title, message);
+        } else {
+            show_notification(title, message);
         }
-        let _ = Notification::new().summary(title).body(message).show();
     }
+}
+
+// Internal: Notifications.
+// ----------------------------------------------------------------------------
+
+const NOTIFY_RELAY: &str = "ctrl";
+
+/// Set on the relay process, so that a relay which fails (and notifies
+/// about its own failure through this crate) does not relay again.
+const NOTIFY_RELAYED_ENV: &str = "FRACTIC_CLI_NOTIFY_RELAYED";
+
+fn show_notification(title: &str, message: &str) {
+    if ["SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY"]
+        .iter()
+        .any(|key| std::env::var_os(key).is_some())
+    {
+        return;
+    }
+    let _ = Notification::new().summary(title).body(message).show();
+}
+
+/// Runs the relay in the background so a slow SSH hop never delays the
+/// prompt that follows, and falls back to showing the notification
+/// directly when it fails. Sync on purpose: `notify` is called outside the
+/// runtime too, so this cannot go through `Executor`.
+fn relay_notification(title: &str, message: &str) {
+    // The name notify-rust would show for this process.
+    let app_name = std::env::current_exe()
+        .ok()
+        .and_then(|exe| Some(exe.file_stem()?.to_string_lossy().into_owned()))
+        .unwrap_or_default();
+    let child = std::process::Command::new(NOTIFY_RELAY)
+        .args(["notify", "send", title, message, "--app-name", &app_name])
+        .env(NOTIFY_RELAYED_ENV, "1")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+    let (title, message) = (title.to_owned(), message.to_owned());
+    std::thread::spawn(move || {
+        let relayed = child
+            .and_then(|mut c| c.wait())
+            .is_ok_and(|status| status.success());
+        if !relayed {
+            show_notification(&title, &message);
+        }
+    });
+}
+
+fn on_path(binary: &str) -> bool {
+    std::env::var_os("PATH")
+        .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(binary).is_file()))
 }
 
 impl StatusBarPrinter {
