@@ -26,5 +26,5 @@ per AWS service.
   that is the consumer's `config.yaml`.
 - Process execution is `tokio::process` through `Executor`
   (`ex.execute…`), never `std::process::Command`.
-- A signature change ripples into every `util/` in the workspace: title it
-  `Breaking: …`.
+- A signature change ripples into every `util/` in the workspace: mark the
+  PR `↯`.
