@@ -19,6 +19,9 @@ grouped by concern (`cli_error`, `common_entities`, `config`, `files`,
 per AWS service.
 
 - Test with `--workspace` from the root (through a product devshell).
+- `define_cli_error!` constructors report to `fractic-server-error`'s
+  process-wide error sink as kind `cli` (`__report_cli_error`), so a CLI that
+  installs the sink records its own flow errors next to the server errors.
 - An AWS helper is a free `pub async fn` in `lib_aws/src/<service>.rs`
   (`pub mod` a new service in `lib_aws/src/lib.rs`); a terminal / file /
   input concern goes under the matching `lib_core` directory. Nothing

@@ -67,6 +67,29 @@ impl CliErrorContext {
     }
 }
 
+/// Reports a CLI error being constructed to the process-wide error sink of
+/// `fractic-server-error`, as kind `cli`. Called by `define_cli_error!`; not
+/// for direct use.
+#[doc(hidden)]
+pub fn __report_cli_error(
+    fingerprint: &str,
+    template: &str,
+    location: &std::panic::Location<'_>,
+    message: &str,
+    debug: Option<&str>,
+    context: &str,
+) {
+    fractic_server_error::__report(
+        fingerprint,
+        template,
+        fractic_server_error::ErrorKind::Cli,
+        location,
+        message,
+        debug,
+        context,
+    );
+}
+
 #[macro_export]
 macro_rules! define_cli_error {
     ($name:ident, $msg:expr) => {
@@ -82,15 +105,30 @@ macro_rules! define_cli_error {
         }
 
         impl $name {
+            /// Stable grouping key: `module_path!()::TypeName`.
             #[allow(dead_code)]
+            pub const FINGERPRINT: &str = concat!(module_path!(), "::", stringify!($name));
+
+            #[allow(dead_code)]
+            #[allow(clippy::new_ret_no_self)]
             #[track_caller]
             pub fn new($($arg: $argtype),*) -> $crate::CliError {
-                Box::new($name {
+                let location = ::std::panic::Location::caller();
+                let error = $name {
                     context: $crate::CliErrorContext::capture(),
                     message: format!($msg, $($arg = $arg),*),
                     debug: None,
                     annotations: Vec::new(),
-                })
+                };
+                $crate::__report_cli_error(
+                    Self::FINGERPRINT,
+                    $msg,
+                    location,
+                    &error.message,
+                    None,
+                    &error.context,
+                );
+                Box::new(error)
             }
 
             #[allow(dead_code)]
@@ -99,12 +137,22 @@ macro_rules! define_cli_error {
                 $($arg: $argtype,)*
                 debug: &D,
             ) -> $crate::CliError where D: std::fmt::Debug {
-                Box::new($name {
+                let location = ::std::panic::Location::caller();
+                let error = $name {
                     context: $crate::CliErrorContext::capture(),
                     message: format!($msg, $($arg = $arg),*),
                     debug: Some(format!("{:#?}", debug)),
                     annotations: Vec::new(),
-                })
+                };
+                $crate::__report_cli_error(
+                    Self::FINGERPRINT,
+                    $msg,
+                    location,
+                    &error.message,
+                    error.debug.as_deref(),
+                    &error.context,
+                );
+                Box::new(error)
             }
         }
 
