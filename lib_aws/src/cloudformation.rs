@@ -6,7 +6,7 @@ use std::{
 use aws_sdk_cloudformation::{
     client::Waiters,
     error::SdkError,
-    operation::describe_stacks::DescribeStacksError,
+    operation::{describe_stacks::DescribeStacksError, update_stack::UpdateStackError},
     types::{Capability, ChangeSetStatus, Parameter},
     Client,
 };
@@ -225,7 +225,7 @@ pub async fn deploy_stack_from_s3(
                         "Updating CloudFormation stack '{}' from S3 URL '{}'...",
                         stack_name, s3_url
                     ));
-                    client
+                    let update = client
                         .update_stack()
                         .stack_name(stack_name)
                         .template_url(s3_url)
@@ -233,8 +233,17 @@ pub async fn deploy_stack_from_s3(
                         .capabilities(Capability::CapabilityAutoExpand)
                         .set_parameters(Some(parameters))
                         .send()
-                        .await
-                        .map_err(|e| CloudFormationDeploymentFailed::with_debug(stack_name, &e))?;
+                        .await;
+                    match update {
+                        Ok(_) => {}
+                        Err(e) if is_no_updates_error(&e) => {
+                            pr.info("No changes detected; the stack is already up to date.");
+                            return Ok(());
+                        }
+                        Err(e) => {
+                            return Err(CloudFormationDeploymentFailed::with_debug(stack_name, &e))
+                        }
+                    }
                 }
                 false => {
                     pr.info(&format!(
@@ -277,4 +286,14 @@ pub async fn deploy_stack_from_s3(
     }
 
     Ok(())
+}
+
+/// `UpdateStack` refuses a template and parameters identical to the stack's
+/// instead of doing nothing; this is that refusal.
+fn is_no_updates_error(error: &SdkError<UpdateStackError>) -> bool {
+    error.as_service_error().is_some_and(|e| {
+        e.meta()
+            .message()
+            .is_some_and(|message| message.contains("No updates are to be performed"))
+    })
 }
