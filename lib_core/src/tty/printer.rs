@@ -12,6 +12,18 @@ use crate::{continue_after_enter, yes_no, CliError};
 #[derive(Debug, Clone)]
 pub struct Printer;
 
+/// What a notification means to the reader. The relay receives it as `ctrl
+/// notify send --kind`; shown directly, it sets the urgency.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotifyKind {
+    /// Expected confirmation (connected, mounted, done).
+    Routine,
+    /// Something to go and look at (input required).
+    Attention,
+    /// A failure.
+    Error,
+}
+
 #[derive(Debug)]
 pub struct StatusBarPrinter {
     out: StdoutLock<'static>,
@@ -80,12 +92,13 @@ impl Printer {
     }
 
     pub fn yes_no(&self, prompt: &str) -> Result<bool, CliError> {
-        self.notify("Input Required", prompt);
+        self.notify(NotifyKind::Attention, "Input Required", prompt);
         yes_no(prompt)
     }
 
     pub fn continue_after_enter(&self, message: Option<&str>) -> Result<(), CliError> {
         self.notify(
+            NotifyKind::Attention,
             "Input Required",
             message.unwrap_or("Press Enter to continue..."),
         );
@@ -97,11 +110,11 @@ impl Printer {
     /// Goes through `ctrl notify send` when a `ctrl` binary is on `PATH`
     /// (it forwards over SSH to the desktop the user sits at), otherwise
     /// shows the notification directly, and not at all inside SSH.
-    pub fn notify(&self, title: &str, message: &str) {
+    pub fn notify(&self, kind: NotifyKind, title: &str, message: &str) {
         if std::env::var_os(NOTIFY_RELAYED_ENV).is_none() && on_path(NOTIFY_RELAY) {
-            relay_notification(title, message);
+            relay_notification(kind, title, message);
         } else {
-            show_notification(title, message);
+            show_notification(kind, title, message);
         }
     }
 }
@@ -156,21 +169,46 @@ const NOTIFY_RELAY: &str = "ctrl";
 /// about its own failure through this crate) does not relay again.
 const NOTIFY_RELAYED_ENV: &str = "FRACTIC_CLI_NOTIFY_RELAYED";
 
-fn show_notification(title: &str, message: &str) {
+impl NotifyKind {
+    /// The relay's `--kind` value.
+    fn as_arg(self) -> &'static str {
+        match self {
+            NotifyKind::Routine => "routine",
+            NotifyKind::Attention => "attention",
+            NotifyKind::Error => "error",
+        }
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    fn urgency(self) -> notify_rust::Urgency {
+        match self {
+            NotifyKind::Routine => notify_rust::Urgency::Low,
+            NotifyKind::Attention => notify_rust::Urgency::Normal,
+            NotifyKind::Error => notify_rust::Urgency::Critical,
+        }
+    }
+}
+
+#[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(unused_variables))]
+fn show_notification(kind: NotifyKind, title: &str, message: &str) {
     if ["SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY"]
         .iter()
         .any(|key| std::env::var_os(key).is_some())
     {
         return;
     }
-    let _ = Notification::new().summary(title).body(message).show();
+    let mut notification = Notification::new();
+    notification.summary(title).body(message);
+    #[cfg(all(unix, not(target_os = "macos")))]
+    notification.urgency(kind.urgency());
+    let _ = notification.show();
 }
 
 /// Runs the relay in the background so a slow SSH hop never delays the
 /// prompt that follows, and falls back to showing the notification
 /// directly when it fails. Sync on purpose: `notify` is called outside the
 /// runtime too, so this cannot go through `Executor`.
-fn relay_notification(title: &str, message: &str) {
+fn relay_notification(kind: NotifyKind, title: &str, message: &str) {
     // The name notify-rust would show for this process.
     let app_name = std::env::current_exe()
         .ok()
@@ -178,6 +216,7 @@ fn relay_notification(title: &str, message: &str) {
         .unwrap_or_default();
     let child = std::process::Command::new(NOTIFY_RELAY)
         .args(["notify", "send", title, message, "--app-name", &app_name])
+        .args(["--kind", kind.as_arg()])
         .env(NOTIFY_RELAYED_ENV, "1")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -189,7 +228,7 @@ fn relay_notification(title: &str, message: &str) {
             .and_then(|mut c| c.wait())
             .is_ok_and(|status| status.success());
         if !relayed {
-            show_notification(&title, &message);
+            show_notification(kind, &title, &message);
         }
     });
 }

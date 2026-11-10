@@ -110,7 +110,7 @@ impl UserPreferences {
     pub fn ask_pref(&mut self, key: &str, prompt: &str) -> Result<Option<String>, CliError> {
         let default_value = self.get_pref::<String>(key);
 
-        crate::Printer::new().notify("Input Required", prompt);
+        crate::Printer::new().notify(crate::NotifyKind::Attention, "Input Required", prompt);
 
         if let Some(ref default_value) = default_value {
             print!("{} [{}]: ", prompt, default_value);
