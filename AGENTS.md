@@ -10,18 +10,19 @@ placeholders, tar, temporary dirs), `DeploymentEnv` / `DeploymentColor`,
 …), Docker, Flutter / Android, git, images and networking (SSH, SCP, DNS,
 sockets). Consumer side: `/efs/fractic/_/repo.md` §2.
 
-Cargo workspace: `main/` is the façade crate `fractic-cli-scaffolding`,
-re-exporting `lib_core` always and `lib_aws`, `lib_docker`, `lib_flutter`,
-`lib_git`, `lib_image`, `lib_networking` behind the features `aws`,
-`docker`, `flutter`, `git`, `image`, `networking`. `lib_core/src/` is
-grouped by concern (`cli_error`, `common_entities`, `config`, `files`,
-`general`, `processing`, `tty`, `user_input`); `lib_aws/src/` has one file
-per AWS service.
+One crate. `src/lib.rs` re-exports the core modules (`cli_error`,
+`common_entities`, `config`, `files`, `general`, `processing`, `tty`,
+`user_input`) always and `aws`, `docker`, `flutter`, `git`, `image`,
+`networking` behind the features of the same names. A feature module's
+dependencies are optional and enabled by its feature in `Cargo.toml`;
+`src/aws/` has one file per AWS service.
 
-- Test with `--workspace` from the root (through a product devshell).
-- An AWS helper is a free `pub async fn` in `lib_aws/src/<service>.rs`
-  (`pub mod` a new service in `lib_aws/src/lib.rs`); a terminal / file /
-  input concern goes under the matching `lib_core` directory. Nothing
+- Test with `--all-features`, and `cargo check --features <f>` for each
+  feature alone when a dependency moves (through a product devshell; the
+  frontend `util/` one has ImageMagick for `image`).
+- An AWS helper is a free `pub async fn` in `src/aws/<service>.rs` (`mod` and
+  `pub use` a new service in `src/aws/mod.rs`); a terminal / file / input
+  concern goes under the matching core directory in `src/`. Nothing
   consumer-specific (stack names, account ids, repo paths) belongs here;
   that is the consumer's `config.yaml`.
 - Process execution is `tokio::process` through `Executor`
