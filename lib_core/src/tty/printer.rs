@@ -6,6 +6,8 @@ use std::{
 
 use colored::{ColoredString, Colorize as _};
 use notify_rust::Notification;
+#[cfg(all(unix, not(target_os = "macos")))]
+use notify_rust::Urgency;
 
 use crate::{continue_after_enter, yes_no, CliError};
 
@@ -178,11 +180,11 @@ impl NotifyKind {
     }
 
     #[cfg(all(unix, not(target_os = "macos")))]
-    fn urgency(self) -> notify_rust::Urgency {
+    fn urgency(self) -> Urgency {
         match self {
-            NotifyKind::Routine => notify_rust::Urgency::Low,
-            NotifyKind::Attention => notify_rust::Urgency::Normal,
-            NotifyKind::Error => notify_rust::Urgency::Critical,
+            NotifyKind::Routine => Urgency::Low,
+            NotifyKind::Attention => Urgency::Normal,
+            NotifyKind::Error => Urgency::Critical,
         }
     }
 }
