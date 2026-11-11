@@ -1,5 +1,7 @@
 use chrono::{Datelike, Local, NaiveDate, NaiveTime};
-use lib_core::{define_cli_error, CliError, CriticalError, Executor, IOMode, InvalidUTF8, Printer};
+use lib_core::{
+    define_cli_error, CliError, CriticalError, Executor, IOMode, InvalidUTF8, NotifyKind, Printer,
+};
 use nix::unistd;
 use openssh::{ForwardType, KnownHosts, Session, SessionBuilder};
 use std::fs;
@@ -296,7 +298,11 @@ pub async fn ssh_cache_identity(
             "Caching SSH identity file '{}'...",
             identity_file.display()
         ));
-        pr.notify("Input Required", "Enter SSH passphrase...");
+        pr.notify(
+            NotifyKind::Attention,
+            "Input Required",
+            "Enter SSH passphrase...",
+        );
         ex.execute(
             "ssh-add",
             &[

@@ -8,7 +8,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 
-use crate::{define_cli_error, mkdir_p, CliError};
+use crate::{define_cli_error, mkdir_p, CliError, NotifyKind, Printer};
 
 define_cli_error!(InvalidUserPreferencesFile, "Invalid user preferences file.");
 
@@ -110,7 +110,7 @@ impl UserPreferences {
     pub fn ask_pref(&mut self, key: &str, prompt: &str) -> Result<Option<String>, CliError> {
         let default_value = self.get_pref::<String>(key);
 
-        crate::Printer::new().notify("Input Required", prompt);
+        Printer::new().notify(NotifyKind::Attention, "Input Required", prompt);
 
         if let Some(ref default_value) = default_value {
             print!("{} [{}]: ", prompt, default_value);

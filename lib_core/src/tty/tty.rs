@@ -4,7 +4,7 @@ use std::pin::Pin;
 
 use tokio::{select, signal};
 
-use crate::{CliError, CtrlC};
+use crate::{CliError, CtrlC, NotifyKind};
 
 use super::{Executor, Printer, UserPreferences};
 
@@ -39,8 +39,11 @@ impl Tty {
                 "This script requires sudo. Enter your password to cache credentials for the \
                  duration of the script.",
             );
-            self.printer
-                .notify("Input Required", "Enter sudo password...");
+            self.printer.notify(
+                NotifyKind::Attention,
+                "Input Required",
+                "Enter sudo password...",
+            );
             self.executor.cache_sudo().await?;
             self.printer.info("Credentials cached.\n");
         }
@@ -130,7 +133,7 @@ impl Tty {
                         None => &m,
                     }
                 };
-                self.printer.notify("Ctrl Failure", head);
+                self.printer.notify(NotifyKind::Error, "CLI Failure", head);
                 std::process::exit(1)
             }
         }
