@@ -133,7 +133,7 @@ impl Tty {
                         None => &m,
                     }
                 };
-                self.printer.notify(NotifyKind::Error, "Ctrl Failure", head);
+                self.printer.notify(NotifyKind::Error, "CLI Failure", head);
                 std::process::exit(1)
             }
         }
