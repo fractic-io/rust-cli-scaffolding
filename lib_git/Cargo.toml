@@ -1,9 +1,0 @@
-[package]
-name = "lib_git"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-git2 = "^0.21.0"
-lib_core = { path = "../lib_core" }
-walkdir = "^2.5.0"
