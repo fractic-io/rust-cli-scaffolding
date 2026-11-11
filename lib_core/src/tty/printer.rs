@@ -12,8 +12,7 @@ use crate::{continue_after_enter, yes_no, CliError};
 #[derive(Debug, Clone)]
 pub struct Printer;
 
-/// What a notification means to the reader. The relay receives it as `ctrl
-/// notify send --kind`; shown directly, it sets the urgency.
+/// What a notification means to the reader.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NotifyKind {
     /// Expected confirmation (connected, mounted, done).
@@ -107,9 +106,8 @@ impl Printer {
 
     /// Best effort. Does not fail if notifications are not supported.
     ///
-    /// Goes through `ctrl notify send` when a `ctrl` binary is on `PATH`
-    /// (it forwards over SSH to the desktop the user sits at), otherwise
-    /// shows the notification directly, and not at all inside SSH.
+    /// Relayed when a `ctrl` binary is on `PATH`; otherwise shown directly,
+    /// and not at all inside SSH.
     pub fn notify(&self, kind: NotifyKind, title: &str, message: &str) {
         if std::env::var_os(NOTIFY_RELAYED_ENV).is_none() && on_path(NOTIFY_RELAY) {
             relay_notification(kind, title, message);
