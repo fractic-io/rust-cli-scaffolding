@@ -8,11 +8,17 @@ use crate::{CliError, CtrlC, NotifyKind};
 
 use super::{Executor, Printer, UserPreferences};
 
+/// Exit status after Ctrl-C (128 + SIGINT), as a shell reports it.
+const EXIT_INTERRUPTED: i32 = 130;
+
 pub struct Tty {
     start_time: std::time::Instant,
     printer: Printer,
     user_preferences: UserPreferences,
     executor: Executor,
+    /// Set once Ctrl-C ends an exec section: the user is at the keyboard, so
+    /// the run's outcome needs no desktop notification.
+    interrupted: bool,
 }
 
 impl Tty {
@@ -26,6 +32,7 @@ impl Tty {
             printer,
             user_preferences,
             executor,
+            interrupted: false,
         })
     }
 
@@ -97,6 +104,7 @@ impl Tty {
             let result = select! {
                 result = f(&mut self.printer, &mut self.executor) => result,
                 _ = signal::ctrl_c() => {
+                    self.interrupted = true;
                     Err(CtrlC::new())
                 }
             };
@@ -126,6 +134,9 @@ impl Tty {
             }
             Err(e) => {
                 eprintln!("{e}");
+                if self.interrupted {
+                    std::process::exit(EXIT_INTERRUPTED)
+                }
                 let head = {
                     let m = e.message();
                     match m.char_indices().nth(120) {
