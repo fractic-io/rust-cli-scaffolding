@@ -287,6 +287,9 @@ impl Executor {
         }
     }
 
+    /// Starts `command` without waiting for it. `Tty::close` waits for every
+    /// background process and fails the run on a non-zero exit, so one that
+    /// runs until it is told to stop is ended with `stop_background_processes`.
     pub async fn execute_background(
         &mut self,
         command: &str,
@@ -305,10 +308,9 @@ impl Executor {
         Ok(())
     }
 
-    /// Stops the background processes that are still running (SIGTERM) and
-    /// waits for them to exit. A process stopped here is not a failure,
-    /// whatever status it exits with; one that had already exited stays for
-    /// `Tty::close` to judge.
+    /// Sends SIGTERM to the background processes still running and waits for
+    /// them. Their exit status is not checked; processes that had already
+    /// exited are left for `Tty::close` to check.
     pub async fn stop_background_processes(&mut self) -> Result<(), CliError> {
         let mut result = Ok(());
         let mut remaining = Vec::new();
@@ -318,17 +320,16 @@ impl Executor {
                 remaining.push(process);
                 continue;
             };
-            let stopped = match self
-                .execute("kill", &["-TERM", &pid.to_string()], IOMode::Mute)
-                .await
-            {
-                Ok(_) => process
+            let stopped = async {
+                self.execute("kill", &["-TERM", &pid.to_string()], IOMode::Mute)
+                    .await?;
+                process
                     .wait()
                     .await
-                    .map(|_| ())
-                    .map_err(|e| TtyExecuteError::with_debug(&e)),
-                Err(e) => Err(e),
-            };
+                    .map_err(|e| TtyExecuteError::with_debug(&e))?;
+                Ok::<(), CliError>(())
+            }
+            .await;
             if let Err(e) = stopped {
                 remaining.push(process);
                 result = result.and(Err(e));
