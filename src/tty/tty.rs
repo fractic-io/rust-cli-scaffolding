@@ -16,8 +16,7 @@ pub struct Tty {
     printer: Printer,
     user_preferences: UserPreferences,
     executor: Executor,
-    /// Set once Ctrl-C ends an exec section: the user is at the keyboard, so
-    /// the run's outcome needs no desktop notification.
+    /// Set once Ctrl-C ends an exec section.
     interrupted: bool,
 }
 

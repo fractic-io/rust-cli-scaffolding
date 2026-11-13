@@ -289,7 +289,8 @@ impl Executor {
 
     /// Starts `command` without waiting for it. `Tty::close` waits for every
     /// background process and fails the run on a non-zero exit, so one that
-    /// runs until it is told to stop is ended with `stop_background_processes`.
+    /// runs until it is told to stop should be ended with
+    /// `stop_background_processes`.
     pub async fn execute_background(
         &mut self,
         command: &str,
