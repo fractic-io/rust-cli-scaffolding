@@ -287,6 +287,10 @@ impl Executor {
         }
     }
 
+    /// Starts `command` without waiting for it. `Tty::close` waits for every
+    /// background process and fails the run on a non-zero exit, so one that
+    /// runs until it is told to stop should be ended with
+    /// `stop_background_processes`.
     pub async fn execute_background(
         &mut self,
         command: &str,
@@ -303,6 +307,37 @@ impl Executor {
                 .map_err(|e| TtyExecuteError::with_debug(&e))?,
         );
         Ok(())
+    }
+
+    /// Sends SIGTERM to the background processes still running and waits for
+    /// them. Their exit status is not checked; processes that had already
+    /// exited are left for `Tty::close` to check.
+    pub async fn stop_background_processes(&mut self) -> Result<(), CliError> {
+        let mut result = Ok(());
+        let mut remaining = Vec::new();
+        for mut process in std::mem::take(&mut self.background_processes) {
+            let running = matches!(process.try_wait(), Ok(None));
+            let Some(pid) = process.id().filter(|_| running) else {
+                remaining.push(process);
+                continue;
+            };
+            let stopped = async {
+                self.execute("kill", &["-TERM", &pid.to_string()], IOMode::Mute)
+                    .await?;
+                process
+                    .wait()
+                    .await
+                    .map_err(|e| TtyExecuteError::with_debug(&e))?;
+                Ok::<(), CliError>(())
+            }
+            .await;
+            if let Err(e) = stopped {
+                remaining.push(process);
+                result = result.and(Err(e));
+            }
+        }
+        self.background_processes = remaining;
+        result
     }
 
     pub(crate) async fn resolve_background_processes(
@@ -342,5 +377,43 @@ impl Executor {
         self.execute("sudo", &["echo", "-n"], IOMode::Attach)
             .await?;
         Ok(())
+    }
+}
+
+// Tests.
+// --------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn stopped_background_process_is_not_a_failure() {
+        let mut ex = Executor::new();
+        // Exits non-zero on SIGTERM, as sshuttle does.
+        ex.execute_background("sh", &["-c", "trap 'exit 99' TERM; sleep 30 & wait"], None)
+            .await
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        ex.stop_background_processes().await.unwrap();
+        assert!(ex.background_processes.is_empty());
+        assert!(ex
+            .resolve_background_processes(&Printer::new())
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn exited_background_process_is_still_judged() {
+        let mut ex = Executor::new();
+        ex.execute_background("sh", &["-c", "exit 99"], None)
+            .await
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        ex.stop_background_processes().await.unwrap();
+        assert!(ex
+            .resolve_background_processes(&Printer::new())
+            .await
+            .is_err());
     }
 }
