@@ -12,6 +12,11 @@ pub trait CliErrorTrait: std::fmt::Debug + Send + Sync + 'static {
     fn debug(&self) -> Option<&String>;
     fn annotations(&self) -> &Vec<&'static str>;
     fn annotate(&mut self, annotation: &'static str);
+    /// The user cancelled (Esc, Ctrl-C or "no" at a prompt) rather than
+    /// something failing; a caller that reports failures stays quiet about it.
+    fn is_cancel(&self) -> bool {
+        false
+    }
 }
 
 pub type CliError = Box<dyn CliErrorTrait>;
@@ -67,12 +72,22 @@ impl CliErrorContext {
     }
 }
 
+/// `define_cli_error!(Name, "Message.")` defines an error type whose `new()`
+/// and `with_debug(&debug)` return a [`CliError`]. Add `{ field: Type }` for
+/// arguments interpolated into the message, or `cancel` for a type that marks a
+/// user cancel ([`CliErrorTrait::is_cancel`]).
 #[macro_export]
 macro_rules! define_cli_error {
     ($name:ident, $msg:expr) => {
-        define_cli_error!($name, $msg, {});
+        $crate::define_cli_error!(@define $name, $msg, {}, false);
+    };
+    ($name:ident, $msg:expr, cancel) => {
+        $crate::define_cli_error!(@define $name, $msg, {}, true);
     };
     ($name:ident, $msg:expr, { $($arg:ident : $argtype:ty),* $(,)? }) => {
+        $crate::define_cli_error!(@define $name, $msg, { $($arg : $argtype),* }, false);
+    };
+    (@define $name:ident, $msg:expr, { $($arg:ident : $argtype:ty),* }, $cancel:literal) => {
         #[derive(Debug)]
         pub struct $name {
             context: String,
@@ -127,6 +142,9 @@ macro_rules! define_cli_error {
             fn annotate(&mut self, annotation: &'static str) {
                 self.annotations.push(annotation);
             }
+            fn is_cancel(&self) -> bool {
+                $cancel
+            }
         }
     };
 }
@@ -139,6 +157,7 @@ define_cli_error!(MultithreadingError, "Error executing child threads.");
 define_cli_error!(IOError, "IO error.");
 define_cli_error!(InvalidUTF8, "Could not parse bytes as UTF-8.");
 define_cli_error!(CtrlC, "Ctrl-C pressed.");
+define_cli_error!(UserCancelled, "User cancelled operation.", cancel);
 
 // Conversion from ServerError.
 // --------------------------------------------------
