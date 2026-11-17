@@ -17,9 +17,9 @@ pub struct Printer;
 /// What a notification means to the reader.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NotifyKind {
-    /// Expected confirmation (connected, mounted, done).
-    Routine,
-    /// Something to go and look at (input required).
+    /// An expected state that needs nothing (e.g. connected, mounted, done).
+    Status,
+    /// Something to go and look at (e.g. input required).
     Attention,
     /// A failure.
     Error,
@@ -173,7 +173,7 @@ impl NotifyKind {
     /// The relay's `--kind` value.
     fn as_arg(self) -> &'static str {
         match self {
-            NotifyKind::Routine => "routine",
+            NotifyKind::Status => "status",
             NotifyKind::Attention => "attention",
             NotifyKind::Error => "error",
         }
@@ -182,7 +182,7 @@ impl NotifyKind {
     #[cfg(all(unix, not(target_os = "macos")))]
     fn urgency(self) -> Urgency {
         match self {
-            NotifyKind::Routine => Urgency::Low,
+            NotifyKind::Status => Urgency::Low,
             NotifyKind::Attention => Urgency::Normal,
             NotifyKind::Error => Urgency::Critical,
         }
