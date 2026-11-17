@@ -17,9 +17,9 @@ pub struct Printer;
 /// What a notification means to the reader.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NotifyKind {
-    /// An expected state that needs nothing (connected, mounted, done).
+    /// An expected state that needs nothing (e.g. connected, mounted, done).
     Status,
-    /// Something to go and look at (input required).
+    /// Something to go and look at (e.g. input required).
     Attention,
     /// A failure.
     Error,
