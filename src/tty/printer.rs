@@ -16,8 +16,8 @@ use crate::{continue_after_enter, yes_no, CliError};
 #[derive(Debug, Clone)]
 pub struct Printer;
 
-/// What a notification means to the reader. Its serde and `ValueEnum` names
-/// (`status`, `attention`, `error`) are what the relay passes as `--kind`.
+/// What a notification means to the reader. Its serde and `ValueEnum` name is
+/// the relay's `--kind` value.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
 #[serde(rename_all = "snake_case")]
 pub enum NotifyKind {
