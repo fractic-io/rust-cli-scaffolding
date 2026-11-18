@@ -12,8 +12,9 @@ use notify_rust::Urgency;
 
 use crate::{continue_after_enter, yes_no, CliError};
 
-/// Status to stdout, warnings and errors to stderr. With `FRACTIC_CLI_QUIET`
-/// set, no status at all (`QUIET_ENV`).
+/// Status to stdout, warnings and errors to stderr, notifications to the
+/// desktop. With `FRACTIC_CLI_QUIET` set, no status and no notifications
+/// (`QUIET_ENV`).
 #[derive(Debug, Clone)]
 pub struct Printer;
 
@@ -118,8 +119,11 @@ impl Printer {
     /// Best effort. Does not fail if notifications are not supported.
     ///
     /// Relayed when a `ctrl` binary is on `PATH`; otherwise shown directly,
-    /// and not at all inside SSH.
+    /// and not at all inside SSH or while status output is off (`QUIET_ENV`).
     pub fn notify(&self, kind: NotifyKind, title: &str, message: &str) {
+        if quiet() {
+            return;
+        }
         if std::env::var_os(NOTIFY_RELAYED_ENV).is_none() && on_path(NOTIFY_RELAY) {
             relay_notification(kind, title, message);
         } else {
@@ -175,8 +179,9 @@ impl Drop for StatusBarPrinter {
 // ----------------------------------------------------------------------------
 
 /// Set to a non-empty value, the printer writes no status (sections, info,
-/// success, the closing lines of `Tty::close`, status bars): stdout then
-/// carries only what the command itself prints, for a caller that parses it.
+/// success, the closing lines of `Tty::close`, status bars) and raises no
+/// notifications: stdout then carries only what the command itself prints, for
+/// a caller that parses it, and a scripted failure is not a desktop alert.
 /// Warnings and errors go to stderr.
 const QUIET_ENV: &str = "FRACTIC_CLI_QUIET";
 
