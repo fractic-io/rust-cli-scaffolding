@@ -2,6 +2,7 @@ use std::{
     future::Future,
     io::{StdoutLock, Write as _},
     pin::Pin,
+    sync::OnceLock,
 };
 
 use colored::{ColoredString, Colorize as _};
@@ -11,6 +12,8 @@ use notify_rust::Urgency;
 
 use crate::{continue_after_enter, yes_no, CliError};
 
+/// Status to stdout, warnings and errors to stderr. With `FRACTIC_CLI_QUIET`
+/// set, no status at all (`QUIET_ENV`).
 #[derive(Debug, Clone)]
 pub struct Printer;
 
@@ -25,9 +28,10 @@ pub enum NotifyKind {
     Error,
 }
 
+/// Writes nothing while status output is off (`QUIET_ENV`).
 #[derive(Debug)]
 pub struct StatusBarPrinter {
-    out: StdoutLock<'static>,
+    out: Option<StdoutLock<'static>>,
 }
 
 impl Printer {
@@ -36,29 +40,29 @@ impl Printer {
     }
 
     pub(crate) fn section_open(&self, title: &str) {
-        println!("{}", title.bold());
+        status(title.bold());
     }
 
     pub(crate) fn section_close(&self) {
-        println!("{}\n", "↳ Complete".dimmed());
+        status(format!("{}\n", "↳ Complete".dimmed()));
     }
 
     pub(crate) fn section_error(&self) {
-        println!("{}\n", "↳ Error".bold().red());
+        status(format!("{}\n", "↳ Error".bold().red()));
     }
 
     pub fn subcommand_separator(&self, subcommand: &str) {
-        println!(
+        status(format!(
             "{}\n{}\n",
             format!("Starting subcommand '{subcommand}'...").green(),
             "─".repeat(80).green()
-        );
+        ));
     }
 
     pub fn caution_box(&self, message: &str) {
-        println!("{}", "-".repeat(80).dimmed());
+        status("-".repeat(80).dimmed());
         self.warn(&textwrap::wrap(message, 80).join("\n"));
-        println!("{}", "-".repeat(80).dimmed());
+        status("-".repeat(80).dimmed());
     }
 
     pub fn with_status_bar<'a, T, F, Fut>(
@@ -73,15 +77,20 @@ impl Printer {
     }
 
     pub fn info(&self, message: &str) {
-        println!("{}", message.dimmed());
+        status(message.dimmed());
     }
 
     pub fn important(&self, message: &str) {
-        println!("{}", message.bright_blue());
+        status(message.bright_blue());
     }
 
+    /// On stdout, or on stderr while status output is off (`QUIET_ENV`).
     pub fn warn(&self, message: &str) {
-        println!("{}", message.yellow());
+        if quiet() {
+            eprintln!("{}", message.yellow());
+        } else {
+            println!("{}", message.yellow());
+        }
     }
 
     pub fn error(&self, message: &str) {
@@ -89,7 +98,7 @@ impl Printer {
     }
 
     pub fn success(&self, message: &str) {
-        println!("{}", message.green());
+        status(message.green());
     }
 
     pub fn yes_no(&self, prompt: &str) -> Result<bool, CliError> {
@@ -122,14 +131,15 @@ impl Printer {
 impl StatusBarPrinter {
     fn new() -> Self {
         StatusBarPrinter {
-            out: std::io::stdout().lock(),
+            out: (!quiet()).then(|| std::io::stdout().lock()),
         }
     }
 
     fn write(&mut self, status: ColoredString) {
-        write!(self.out, "\r\x1b[2K").unwrap();
-        write!(self.out, "\r{}", status).unwrap();
-        self.out.flush().unwrap();
+        let Some(out) = &mut self.out else { return };
+        write!(out, "\r\x1b[2K").unwrap();
+        write!(out, "\r{}", status).unwrap();
+        out.flush().unwrap();
     }
 
     pub fn info(&mut self, status: &str) {
@@ -149,14 +159,35 @@ impl StatusBarPrinter {
     }
 
     fn close(&mut self) {
-        write!(self.out, "\n").unwrap();
-        self.out.flush().unwrap();
+        let Some(out) = &mut self.out else { return };
+        write!(out, "\n").unwrap();
+        out.flush().unwrap();
     }
 }
 
 impl Drop for StatusBarPrinter {
     fn drop(&mut self) {
         self.close();
+    }
+}
+
+// Internal: Status output.
+// ----------------------------------------------------------------------------
+
+/// Set to a non-empty value, the printer writes no status (sections, info,
+/// success, the closing lines of `Tty::close`, status bars): stdout then
+/// carries only what the command itself prints, for a caller that parses it.
+/// Warnings and errors go to stderr.
+const QUIET_ENV: &str = "FRACTIC_CLI_QUIET";
+
+fn quiet() -> bool {
+    static QUIET: OnceLock<bool> = OnceLock::new();
+    *QUIET.get_or_init(|| std::env::var_os(QUIET_ENV).is_some_and(|value| !value.is_empty()))
+}
+
+fn status(line: impl std::fmt::Display) {
+    if !quiet() {
+        println!("{line}");
     }
 }
 
