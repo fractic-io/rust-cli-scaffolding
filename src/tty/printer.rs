@@ -5,10 +5,12 @@ use std::{
     sync::OnceLock,
 };
 
+use clap::ValueEnum;
 use colored::{ColoredString, Colorize as _};
 use notify_rust::Notification;
 #[cfg(all(unix, not(target_os = "macos")))]
 use notify_rust::Urgency;
+use serde::{Deserialize, Serialize};
 
 use crate::{continue_after_enter, yes_no, CliError};
 
@@ -18,12 +20,15 @@ use crate::{continue_after_enter, yes_no, CliError};
 #[derive(Debug, Clone)]
 pub struct Printer;
 
-/// What a notification means to the reader.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// What a notification means to the reader. Its serde and `ValueEnum` name is
+/// the relay's `--kind` value.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
+#[serde(rename_all = "snake_case")]
 pub enum NotifyKind {
     /// An expected state that needs nothing (e.g. connected, mounted, done).
     Status,
     /// Something to go and look at (e.g. input required).
+    #[default]
     Attention,
     /// A failure.
     Error,
@@ -132,6 +137,18 @@ impl Printer {
     }
 }
 
+impl NotifyKind {
+    /// The desktop notification urgency of this kind.
+    #[cfg(all(unix, not(target_os = "macos")))]
+    pub fn urgency(self) -> Urgency {
+        match self {
+            NotifyKind::Status => Urgency::Low,
+            NotifyKind::Attention => Urgency::Normal,
+            NotifyKind::Error => Urgency::Critical,
+        }
+    }
+}
+
 impl StatusBarPrinter {
     fn new() -> Self {
         StatusBarPrinter {
@@ -205,26 +222,6 @@ const NOTIFY_RELAY: &str = "ctrl";
 /// about its own failure through this crate) does not relay again.
 const NOTIFY_RELAYED_ENV: &str = "FRACTIC_CLI_NOTIFY_RELAYED";
 
-impl NotifyKind {
-    /// The relay's `--kind` value.
-    fn as_arg(self) -> &'static str {
-        match self {
-            NotifyKind::Status => "status",
-            NotifyKind::Attention => "attention",
-            NotifyKind::Error => "error",
-        }
-    }
-
-    #[cfg(all(unix, not(target_os = "macos")))]
-    fn urgency(self) -> Urgency {
-        match self {
-            NotifyKind::Status => Urgency::Low,
-            NotifyKind::Attention => Urgency::Normal,
-            NotifyKind::Error => Urgency::Critical,
-        }
-    }
-}
-
 #[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(unused_variables))]
 fn show_notification(kind: NotifyKind, title: &str, message: &str) {
     if ["SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY"]
@@ -250,9 +247,13 @@ fn relay_notification(kind: NotifyKind, title: &str, message: &str) {
         .ok()
         .and_then(|exe| Some(exe.file_stem()?.to_string_lossy().into_owned()))
         .unwrap_or_default();
+    let kind_arg = kind
+        .to_possible_value()
+        .map(|value| value.get_name().to_owned())
+        .unwrap_or_default();
     let child = std::process::Command::new(NOTIFY_RELAY)
         .args(["notify", "send", title, message, "--app-name", &app_name])
-        .args(["--kind", kind.as_arg()])
+        .args(["--kind", &kind_arg])
         .env(NOTIFY_RELAYED_ENV, "1")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -272,4 +273,26 @@ fn relay_notification(kind: NotifyKind, title: &str, message: &str) {
 fn on_path(binary: &str) -> bool {
     std::env::var_os("PATH")
         .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(binary).is_file()))
+}
+
+// Tests.
+// ----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn notify_kind_has_one_name_in_serde_and_clap() {
+        let mut names = Vec::new();
+        for kind in NotifyKind::value_variants() {
+            let name = kind.to_possible_value().unwrap().get_name().to_owned();
+            assert_eq!(serde_json::to_string(kind).unwrap(), format!("\"{name}\""));
+            assert_eq!(NotifyKind::from_str(&name, false), Ok(*kind));
+            names.push(name);
+        }
+        // The relay's wire format: renaming one breaks older relays.
+        assert_eq!(names, ["status", "attention", "error"]);
+        assert_eq!(NotifyKind::default(), NotifyKind::Attention);
+    }
 }
