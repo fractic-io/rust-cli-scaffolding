@@ -26,4 +26,3 @@ dependencies are optional and enabled by its feature in `Cargo.toml`;
   that is the consumer's configuration.
 - Process execution is `tokio::process` through `Executor`
   (`ex.execute…`), never `std::process::Command`.
-- A public signature change breaks consumers: mark the PR `↯`.
