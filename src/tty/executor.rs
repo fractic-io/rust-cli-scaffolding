@@ -7,7 +7,7 @@ use std::{
 
 use tokio::io::AsyncReadExt as _;
 
-use crate::{define_cli_error, CliError, IOError};
+use crate::{define_cli_error, define_cli_user_error, CliError, IOError};
 
 use super::Printer;
 
@@ -22,7 +22,7 @@ define_cli_error!(
     "[{exit_status}] Background command failed.",
     { exit_status: ExitStatus }
 );
-define_cli_error!(
+define_cli_user_error!(
     TtyRequiredCommandMissing,
     "Required command not found: {command}.",
     { command: &str }
