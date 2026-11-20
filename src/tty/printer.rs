@@ -12,7 +12,7 @@ use notify_rust::Notification;
 use notify_rust::Urgency;
 use serde::{Deserialize, Serialize};
 
-use crate::{continue_after_enter, yes_no, CliError};
+use crate::{continue_after_enter, yes_no, CliError, CliErrorKind};
 
 /// Status to stdout, warnings and errors to stderr, notifications to the
 /// desktop. With `FRACTIC_CLI_QUIET` set, no status and no notifications
@@ -49,12 +49,13 @@ impl Printer {
         status(title.bold());
     }
 
-    pub(crate) fn section_close(&self) {
-        status(format!("{}\n", "↳ Complete".dimmed()));
-    }
-
-    pub(crate) fn section_error(&self) {
-        status(format!("{}\n", "↳ Error".bold().red()));
+    pub(crate) fn section_end<T>(&self, result: &Result<T, CliError>) {
+        let outcome = match result {
+            Ok(_) => "↳ Complete".dimmed(),
+            Err(error) if error.kind() == CliErrorKind::Cancelled => "↳ Cancelled".dimmed(),
+            Err(_) => "↳ Error".bold().red(),
+        };
+        status(format!("{outcome}\n"));
     }
 
     pub fn subcommand_separator(&self, subcommand: &str) {

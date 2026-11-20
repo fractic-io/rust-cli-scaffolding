@@ -119,6 +119,8 @@ pub fn ask_optional(prompt: &'static str) -> Result<Option<String>, CliError> {
 
 #[cfg(test)]
 mod tests {
+    use crate::CliErrorKind;
+
     use super::*;
 
     #[test]
@@ -127,10 +129,11 @@ mod tests {
             InquireError::OperationCanceled,
             InquireError::OperationInterrupted,
         ] {
-            assert!(prompt_failure(error, |e| PromptError::with_debug(e)).is_cancel());
+            let cancel = prompt_failure(error, |e| PromptError::with_debug(e));
+            assert_eq!(cancel.kind(), CliErrorKind::Cancelled);
         }
         let failure = prompt_failure(InquireError::NotTTY, |e| PromptError::with_debug(e));
-        assert!(!failure.is_cancel());
+        assert_eq!(failure.kind(), CliErrorKind::Failure);
         assert_eq!(failure.message(), "Prompt failed.");
     }
 }

@@ -4,12 +4,12 @@ use std::pin::Pin;
 
 use tokio::{select, signal};
 
-use crate::{CliError, CtrlC, NotifyKind};
+use crate::{CliError, CliErrorKind, NotifyKind, UserCancelled};
 
 use super::{Executor, Printer, UserPreferences};
 
-/// Exit status after Ctrl-C (128 + SIGINT), as a shell reports it.
-const EXIT_INTERRUPTED: i32 = 130;
+/// Exit status after a cancel (128 + SIGINT, as a shell reports Ctrl-C).
+const EXIT_CANCELLED: i32 = 130;
 
 pub struct Tty {
     start_time: std::time::Instant,
@@ -75,16 +75,8 @@ impl Tty {
         local_printer.section_open("Initializing...");
         Box::pin(async move {
             let result = f(&mut self.printer, &mut self.user_preferences).await;
-            match result {
-                Ok(value) => {
-                    local_printer.section_close();
-                    Ok(value)
-                }
-                Err(error) => {
-                    local_printer.section_error();
-                    Err(error)
-                }
-            }
+            local_printer.section_end(&result);
+            result
         })
     }
 
@@ -104,19 +96,11 @@ impl Tty {
                 result = f(&mut self.printer, &mut self.executor) => result,
                 _ = signal::ctrl_c() => {
                     self.interrupted = true;
-                    Err(CtrlC::new())
+                    Err(UserCancelled::new())
                 }
             };
-            match result {
-                Ok(value) => {
-                    local_printer.section_close();
-                    Ok(value)
-                }
-                Err(error) => {
-                    local_printer.section_error();
-                    Err(error)
-                }
-            }
+            local_printer.section_end(&result);
+            result
         })
     }
 
@@ -133,8 +117,8 @@ impl Tty {
             }
             Err(e) => {
                 eprintln!("{e}");
-                if self.interrupted {
-                    std::process::exit(EXIT_INTERRUPTED)
+                if self.interrupted || e.kind() == CliErrorKind::Cancelled {
+                    std::process::exit(EXIT_CANCELLED)
                 }
                 let head = {
                     let m = e.message();

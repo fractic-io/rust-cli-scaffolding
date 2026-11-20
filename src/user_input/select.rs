@@ -2,10 +2,10 @@ use std::fmt;
 
 use strum::IntoEnumIterator;
 
-use crate::{define_cli_error, prompt_failure, CliError};
+use crate::{define_cli_error, define_cli_user_error, prompt_failure, CliError};
 
 define_cli_error!(SelectionError, "Selection failed.");
-define_cli_error!(NoItemsError, "No {type_name} items to select from.", { type_name: &str });
+define_cli_user_error!(NoItemsError, "No {type_name} items to select from.", { type_name: &str });
 
 pub trait Selectable {
     type Item;
