@@ -176,6 +176,8 @@ fn stderr_indicates_host_key_changed(stderr: &str) -> bool {
 }
 
 /// The port forwarding remains active until the returned PortForwardHandle is dropped.
+/// The forwarded port listens on loopback only, so only the machine it is opened on
+/// can connect to it.
 pub async fn forward_port<'a>(
     pr: &Printer,
     user: &str,
@@ -220,7 +222,7 @@ pub async fn forward_port<'a>(
         .request_port_forward(
             direction,
             (
-                std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
+                std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
                 local_port,
             ),
             (
