@@ -35,7 +35,7 @@ where
 
 #[allow(
     clippy::too_many_arguments,
-    reason = "public signature; an options struct would break every caller"
+    reason = "an options struct would change this public signature for every caller"
 )]
 pub fn process_screenshot_headline_text<P>(
     printer: &Printer,

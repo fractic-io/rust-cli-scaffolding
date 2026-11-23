@@ -125,7 +125,7 @@ fn derive_template_url(s3_bucket: &str, s3_region: &str, s3_key: &str) -> String
 
 #[allow(
     clippy::too_many_arguments,
-    reason = "public signature; an options struct would break every caller"
+    reason = "an options struct would change this public signature for every caller"
 )]
 pub async fn deploy_stack_from_s3(
     pr: &Printer,

@@ -55,9 +55,7 @@ pub struct Executor {
 
 impl Executor {
     pub fn new() -> Self {
-        Executor {
-            background_processes: Vec::new(),
-        }
+        Self::default()
     }
 
     pub async fn has_command(&self, program: &str) -> bool {

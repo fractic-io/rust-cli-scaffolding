@@ -180,7 +180,7 @@ fn stderr_indicates_host_key_changed(stderr: &str) -> bool {
 /// can connect to it.
 #[allow(
     clippy::too_many_arguments,
-    reason = "public signature; an options struct would break every caller"
+    reason = "an options struct would change this public signature for every caller"
 )]
 pub async fn forward_port<'a>(
     pr: &Printer,
