@@ -208,7 +208,6 @@ impl Drop for StatusBarPrinter {
 /// Set to a non-empty value, status output is off from the start (`quiet`).
 const QUIET_ENV: &str = "FRACTIC_CLI_QUIET";
 
-/// Set by `Printer::set_quiet`.
 static QUIET_SET: AtomicBool = AtomicBool::new(false);
 
 /// Whether status output is off. Then the printer writes no status (sections,
