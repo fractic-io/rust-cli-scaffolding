@@ -9,7 +9,7 @@ use chrono::{DateTime, Utc};
 use futures_util::stream::{self, StreamExt as _, TryStreamExt as _};
 use sha2::{Digest as _, Sha256};
 
-use super::shared_config::config_from_profile;
+use super::shared_config::aws_config_from_profile;
 
 define_cli_error!(S3Error, "Error running S3 command.");
 define_cli_error!(S3InvalidUpload, "Invalid S3 upload request: {details}.", { details: &str });
@@ -23,7 +23,7 @@ pub struct S3ObjectMetadata {
 }
 
 pub async fn s3_bucket_exists(profile: &str, region: &str, bucket: &str) -> Result<bool, CliError> {
-    let client = Client::new(&config_from_profile(profile, region).await);
+    let client = Client::new(&aws_config_from_profile(profile, region).await);
     let response = client.head_bucket().bucket(bucket).send().await;
     match response {
         Ok(_) => Ok(true),
@@ -41,7 +41,7 @@ pub async fn s3_create_bucket_if_not_exists(
 ) -> Result<bool, CliError> {
     if !s3_bucket_exists(profile, region, bucket).await? {
         pr.info(&format!("Creating S3 bucket '{}'...", bucket));
-        let client = Client::new(&config_from_profile(profile, region).await);
+        let client = Client::new(&aws_config_from_profile(profile, region).await);
         client
             .create_bucket()
             .bucket(bucket)
@@ -97,7 +97,7 @@ where
         return Err(S3InvalidUpload::new("path is not a file"));
     }
 
-    let client = Client::new(&config_from_profile(profile, region).await);
+    let client = Client::new(&aws_config_from_profile(profile, region).await);
 
     let body = aws_sdk_s3::primitives::ByteStream::from_path(file_path)
         .await
@@ -134,7 +134,7 @@ where
         return Err(S3InvalidUpload::new("path is not a directory"));
     }
 
-    let client = Client::new(&config_from_profile(profile, region).await);
+    let client = Client::new(&aws_config_from_profile(profile, region).await);
 
     let mut count = 0;
     for entry in walkdir::WalkDir::new(&dir_path) {
@@ -177,7 +177,7 @@ pub async fn s3_list(
     bucket: &str,
     prefix: &str,
 ) -> Result<Vec<S3ObjectMetadata>, CliError> {
-    let client = Client::new(&config_from_profile(profile, region).await);
+    let client = Client::new(&aws_config_from_profile(profile, region).await);
 
     let objects = client
         .list_objects_v2()
@@ -217,7 +217,7 @@ pub async fn s3_download_object<P>(
 where
     P: AsRef<Path>,
 {
-    let client = Client::new(&config_from_profile(profile, region).await);
+    let client = Client::new(&aws_config_from_profile(profile, region).await);
 
     let response = client
         .get_object()
@@ -276,7 +276,7 @@ pub async fn s3_delete_object(
     bucket: &str,
     key: &str,
 ) -> Result<(), CliError> {
-    let client = Client::new(&config_from_profile(profile, region).await);
+    let client = Client::new(&aws_config_from_profile(profile, region).await);
 
     client
         .delete_object()
@@ -326,7 +326,7 @@ pub async fn s3_create_folder_placeholder(
     bucket: &str,
     key: &str,
 ) -> Result<(), CliError> {
-    let client = Client::new(&config_from_profile(profile, region).await);
+    let client = Client::new(&aws_config_from_profile(profile, region).await);
 
     client
         .put_object()

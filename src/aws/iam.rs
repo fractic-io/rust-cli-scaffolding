@@ -4,7 +4,7 @@ use aws_sdk_iam::{
     Client,
 };
 
-use super::shared_config::config_from_profile;
+use super::shared_config::aws_config_from_profile;
 
 define_cli_error!(IamError, "Error running AWS IAM command.");
 define_cli_error!(
@@ -46,7 +46,7 @@ pub async fn create_access_key_for_user(
     username: &str,
     rotation: KeyRotation,
 ) -> Result<IamAccessKeyCredentials, CliError> {
-    let client = Client::new(&config_from_profile(profile, region).await);
+    let client = Client::new(&aws_config_from_profile(profile, region).await);
     let mut existing_keys = list_access_keys(&client, username).await?;
 
     // Clean up any inactive keys.
@@ -101,6 +101,33 @@ pub async fn create_access_key_for_user(
         access_key_id: key.access_key_id,
         secret_access_key: key.secret_access_key,
     })
+}
+
+/// The ids of the user's active access keys.
+pub async fn list_active_access_keys_for_user(
+    profile: &str,
+    region: &str,
+    username: &str,
+) -> Result<Vec<String>, CliError> {
+    let client = Client::new(&aws_config_from_profile(profile, region).await);
+    Ok(list_access_keys(&client, username)
+        .await?
+        .iter()
+        .filter(|key| key.status() == Some(&StatusType::Active))
+        .filter_map(key_id)
+        .collect())
+}
+
+/// Deletes one of the user's access keys, active or not.
+pub async fn delete_access_key_for_user(
+    printer: &Printer,
+    profile: &str,
+    region: &str,
+    username: &str,
+    access_key_id: &str,
+) -> Result<(), CliError> {
+    let client = Client::new(&aws_config_from_profile(profile, region).await);
+    delete_access_key(printer, &client, username, access_key_id).await
 }
 
 // Helpers.

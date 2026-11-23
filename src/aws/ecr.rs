@@ -2,7 +2,7 @@ use crate::{define_cli_error, CliError, InvalidUTF8};
 use aws_sdk_ecr::Client;
 use base64::{prelude::BASE64_STANDARD, Engine};
 
-use super::shared_config::config_from_profile;
+use super::shared_config::aws_config_from_profile;
 
 define_cli_error!(EcrError, "Error running AWS ECR command.");
 define_cli_error!(EcrCredentialsError, "Error decoding ECR credentials: {details}.", { details: &str });
@@ -15,7 +15,7 @@ pub struct EcrCredentials {
 }
 
 pub async fn get_ecr_credentials(profile: &str, region: &str) -> Result<EcrCredentials, CliError> {
-    let client = Client::new(&config_from_profile(profile, region).await);
+    let client = Client::new(&aws_config_from_profile(profile, region).await);
 
     let auth_response = client
         .get_authorization_token()
