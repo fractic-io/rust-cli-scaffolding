@@ -15,8 +15,8 @@ use serde::{Deserialize, Serialize};
 use crate::{continue_after_enter, yes_no, CliError};
 
 /// Status to stdout, warnings and errors to stderr, notifications to the
-/// desktop or to the command in `FRACTIC_CLI_NOTIFY_RELAY` (`NOTIFY_RELAY_ENV`).
-/// With `FRACTIC_CLI_QUIET` set, no status and no notifications (`QUIET_ENV`).
+/// desktop or to a relay command (`NOTIFY_RELAY_ENV`). With `FRACTIC_CLI_QUIET`
+/// set, no status and no notifications (`QUIET_ENV`).
 #[derive(Debug, Clone)]
 pub struct Printer;
 
@@ -123,9 +123,10 @@ impl Printer {
 
     /// Best effort. Does not fail if notifications are not supported.
     ///
-    /// Handed to the relay command when one is set (`NOTIFY_RELAY_ENV`);
-    /// otherwise, or when the relay fails, shown directly, and not at all
-    /// inside SSH. Nothing while status output is off (`QUIET_ENV`).
+    /// Hands the notification to the relay command when one is set
+    /// (`NOTIFY_RELAY_ENV`). Without a relay, or when it fails, shows the
+    /// notification directly, unless the process runs inside SSH. Does nothing
+    /// while status output is off (`QUIET_ENV`).
     pub fn notify(&self, kind: NotifyKind, title: &str, message: &str) {
         if quiet() {
             return;
@@ -216,12 +217,13 @@ fn status(line: impl std::fmt::Display) {
 // Internal: Notifications.
 // ----------------------------------------------------------------------------
 
-/// A command line, split on whitespace, that takes over showing
-/// notifications, for example to forward them to another machine. It is run
-/// with the arguments `<title> <message> --app-name <executable name> --kind
-/// <NotifyKind>` appended, and without this variable, so that a relay built
-/// on this crate shows its own notifications directly. Exiting non-zero
-/// means the notification was not delivered; it is then shown directly.
+/// A command that takes over showing notifications, for example to forward
+/// them to another machine: a program and leading arguments, split on
+/// whitespace. The arguments `<title> <message> --app-name <executable name>
+/// --kind <NotifyKind>` are appended to it. The relay runs without this
+/// variable, so a relay built on this crate shows its own notifications
+/// directly. A relay that exits non-zero has not delivered the notification,
+/// which is then shown directly.
 const NOTIFY_RELAY_ENV: &str = "FRACTIC_CLI_NOTIFY_RELAY";
 
 /// The relay's program and leading arguments, if one is set.
