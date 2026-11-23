@@ -5,16 +5,15 @@ use aws_config::{
     SdkConfig,
 };
 
-/// The SDK configuration for `profile` (a profile in `~/.aws/config`, such as
-/// the one `require_aws_profile` returns) in `region`, ready for any
-/// `aws_sdk_*::Client::new`.
+/// The SDK configuration for the named profile of `~/.aws/config` in `region`,
+/// ready for any `aws_sdk_*::Client::new`.
 pub async fn aws_config_from_profile(
     profile: impl Into<String>,
     region: impl Into<String>,
 ) -> SdkConfig {
-    // The SDK's default timeouts are too short for large operations (S3
-    // transfers, stack deployments); its 5s connect timeout in particular
-    // trips on slow connections or with many concurrent requests.
+    // The SDK's default timeouts are too short for large operations such as S3
+    // transfers. Its 5 s connect timeout in particular trips on slow
+    // connections or when many requests run at once.
     let timeout_config = TimeoutConfig::builder()
         .connect_timeout(Duration::from_secs(30))
         .operation_attempt_timeout(Duration::from_secs(300))

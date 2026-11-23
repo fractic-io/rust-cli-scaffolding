@@ -40,7 +40,7 @@ pub async fn set_route53_a_record(
     ip_address: &str,
     ttl: i64,
 ) -> Result<(), CliError> {
-    record_set_helper(
+    set_route53_record_values(
         profile,
         hosted_zone_id,
         RrType::A,
@@ -58,7 +58,7 @@ pub async fn set_route53_cname_record(
     value: &str,
     ttl: i64,
 ) -> Result<(), CliError> {
-    record_set_helper(
+    set_route53_record_values(
         profile,
         hosted_zone_id,
         RrType::Cname,
@@ -127,8 +127,8 @@ pub async fn get_route53_cname_record(
     Ok(record.and_then(record_value_string))
 }
 
-/// The id (`Z…`, without the `/hostedzone/` prefix) of the public hosted zone
-/// named exactly `domain`, as the other functions here take it.
+/// The id of the public hosted zone named exactly `domain`, without the
+/// `/hostedzone/` prefix, which is the form the other functions here take.
 pub async fn require_route53_hosted_zone_id(
     profile: &str,
     domain: &str,
@@ -171,27 +171,6 @@ pub async fn get_route53_record_values(
     }))
 }
 
-/// Creates or replaces the record set `record_name`/`record_type` with
-/// `values`, each in the form Route53 stores (see `route53_txt_value`).
-pub async fn set_route53_record_values(
-    profile: &str,
-    hosted_zone_id: &str,
-    record_type: Route53RecordType,
-    record_name: &str,
-    values: &[impl AsRef<str>],
-    ttl: i64,
-) -> Result<(), CliError> {
-    record_set_helper(
-        profile,
-        hosted_zone_id,
-        record_type,
-        record_name,
-        values,
-        ttl,
-    )
-    .await
-}
-
 /// A domain name in the form Route53 returns it: lower case, with the trailing
 /// dot. Names compare equal in this form however they were entered.
 pub fn route53_name(name: &str) -> String {
@@ -227,13 +206,12 @@ pub fn route53_txt_value(value: &str) -> String {
     format!("\"{value}\"")
 }
 
-// Helpers.
-// ----------------------------------------------------------------------------
-
-async fn record_set_helper(
+/// Creates or replaces the record set `name`/`rtype` with `values`, each in
+/// the form Route53 stores (see `route53_txt_value`).
+pub async fn set_route53_record_values(
     profile: &str,
     hosted_zone_id: &str,
-    rtype: RrType,
+    rtype: Route53RecordType,
     name: &str,
     values: &[impl AsRef<str>],
     ttl: i64,
@@ -278,6 +256,9 @@ async fn record_set_helper(
 
     Ok(())
 }
+
+// Helpers.
+// ----------------------------------------------------------------------------
 
 async fn alias_record_set_helper<'a>(
     profile: &str,
