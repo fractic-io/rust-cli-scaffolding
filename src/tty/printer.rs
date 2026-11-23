@@ -15,8 +15,8 @@ use serde::{Deserialize, Serialize};
 use crate::{continue_after_enter, yes_no, CliError};
 
 /// Status to stdout, warnings and errors to stderr, notifications to the
-/// desktop. With `FRACTIC_CLI_QUIET` set, no status and no notifications
-/// (`QUIET_ENV`).
+/// desktop or to the command in `FRACTIC_CLI_NOTIFY_RELAY` (`NOTIFY_RELAY_ENV`).
+/// With `FRACTIC_CLI_QUIET` set, no status and no notifications (`QUIET_ENV`).
 #[derive(Debug, Clone)]
 pub struct Printer;
 
@@ -123,16 +123,16 @@ impl Printer {
 
     /// Best effort. Does not fail if notifications are not supported.
     ///
-    /// Relayed when a `ctrl` binary is on `PATH`; otherwise shown directly,
-    /// and not at all inside SSH or while status output is off (`QUIET_ENV`).
+    /// Handed to the relay command when one is set (`NOTIFY_RELAY_ENV`);
+    /// otherwise, or when the relay fails, shown directly, and not at all
+    /// inside SSH. Nothing while status output is off (`QUIET_ENV`).
     pub fn notify(&self, kind: NotifyKind, title: &str, message: &str) {
         if quiet() {
             return;
         }
-        if std::env::var_os(NOTIFY_RELAYED_ENV).is_none() && on_path(NOTIFY_RELAY) {
-            relay_notification(kind, title, message);
-        } else {
-            show_notification(kind, title, message);
+        match notify_relay() {
+            Some((program, args)) => relay_notification(&program, &args, kind, title, message),
+            None => show_notification(kind, title, message),
         }
     }
 }
@@ -216,11 +216,20 @@ fn status(line: impl std::fmt::Display) {
 // Internal: Notifications.
 // ----------------------------------------------------------------------------
 
-const NOTIFY_RELAY: &str = "ctrl";
+/// A command line, split on whitespace, that takes over showing
+/// notifications, for example to forward them to another machine. It is run
+/// with the arguments `<title> <message> --app-name <executable name> --kind
+/// <NotifyKind>` appended, and without this variable, so that a relay built
+/// on this crate shows its own notifications directly. Exiting non-zero
+/// means the notification was not delivered; it is then shown directly.
+const NOTIFY_RELAY_ENV: &str = "FRACTIC_CLI_NOTIFY_RELAY";
 
-/// Set on the relay process, so that a relay which fails (and notifies
-/// about its own failure through this crate) does not relay again.
-const NOTIFY_RELAYED_ENV: &str = "FRACTIC_CLI_NOTIFY_RELAYED";
+/// The relay's program and leading arguments, if one is set.
+fn notify_relay() -> Option<(String, Vec<String>)> {
+    let relay = std::env::var(NOTIFY_RELAY_ENV).ok()?;
+    let mut words = relay.split_whitespace().map(str::to_owned);
+    Some((words.next()?, words.collect()))
+}
 
 #[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(unused_variables))]
 fn show_notification(kind: NotifyKind, title: &str, message: &str) {
@@ -237,11 +246,17 @@ fn show_notification(kind: NotifyKind, title: &str, message: &str) {
     let _ = notification.show();
 }
 
-/// Runs the relay in the background so a slow SSH hop never delays the
+/// Runs the relay in the background so a slow relay never delays the
 /// prompt that follows, and falls back to showing the notification
 /// directly when it fails. Sync on purpose: `notify` is called outside the
 /// runtime too, so this cannot go through `Executor`.
-fn relay_notification(kind: NotifyKind, title: &str, message: &str) {
+fn relay_notification(
+    program: &str,
+    leading_args: &[String],
+    kind: NotifyKind,
+    title: &str,
+    message: &str,
+) {
     // The name notify-rust would show for this process.
     let app_name = std::env::current_exe()
         .ok()
@@ -251,10 +266,10 @@ fn relay_notification(kind: NotifyKind, title: &str, message: &str) {
         .to_possible_value()
         .map(|value| value.get_name().to_owned())
         .unwrap_or_default();
-    let child = std::process::Command::new(NOTIFY_RELAY)
-        .args(["notify", "send", title, message, "--app-name", &app_name])
-        .args(["--kind", &kind_arg])
-        .env(NOTIFY_RELAYED_ENV, "1")
+    let child = std::process::Command::new(program)
+        .args(leading_args)
+        .args([title, message, "--app-name", &app_name, "--kind", &kind_arg])
+        .env_remove(NOTIFY_RELAY_ENV)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -268,11 +283,6 @@ fn relay_notification(kind: NotifyKind, title: &str, message: &str) {
             show_notification(kind, &title, &message);
         }
     });
-}
-
-fn on_path(binary: &str) -> bool {
-    std::env::var_os("PATH")
-        .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(binary).is_file()))
 }
 
 // Tests.
