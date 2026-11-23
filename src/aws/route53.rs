@@ -12,9 +12,9 @@ define_cli_error!(Route53Error, "Error running AWS Route53 command.");
 define_cli_error!(InvalidDnsValue, "Invalid IP address: {ip_address}.", { ip_address: &str });
 
 /// Since Route53 is a global service, we can use any region.
-const DEFAULT_REGION: &'static str = "us-east-1";
+const DEFAULT_REGION: &str = "us-east-1";
 /// CloudFront's alias hosted zone ID is global and constant.
-const CLOUDFRONT_ALIAS_HOSTED_ZONE_ID: &'static str = "Z2FDTNDATAQYW2";
+const CLOUDFRONT_ALIAS_HOSTED_ZONE_ID: &str = "Z2FDTNDATAQYW2";
 
 pub enum AliasTargetType<'a> {
     /// Automatically uses the global CloudFront hosted zone ID.

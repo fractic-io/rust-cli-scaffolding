@@ -106,7 +106,7 @@ pub async fn secret_replica_regions(
         .await
         .map_err(|e| AwsSecretsManagerError::with_debug(&e))?
         .replication_status()
-        .into_iter()
+        .iter()
         .filter_map(|status| status.region())
         .map(str::to_owned)
         .collect())
@@ -145,7 +145,7 @@ pub async fn update_or_create_secret(
                 .name(secret_id)
                 .secret_string(value)
                 .set_add_replica_regions(replica_regions.map(|r| {
-                    r.into_iter()
+                    r.iter()
                         .map(|r| ReplicaRegionType::builder().region(r).build())
                         .collect()
                 }))

@@ -48,7 +48,7 @@ pub fn list_git_tracked_files<P: AsRef<Path>>(
         .as_ref()
         .map(|subpaths| {
             subpaths
-                .into_iter()
+                .iter()
                 .map(|subpath| {
                     let p = repo_root.join(subpath.trim_start_matches('/'));
                     fs::canonicalize(&p)
@@ -112,7 +112,7 @@ pub fn list_git_tracked_files<P: AsRef<Path>>(
         }
     }
 
-    if include_dot_git && filter_subpaths.as_ref().map_or(true, |s| s.contains(&"/")) {
+    if include_dot_git && filter_subpaths.as_ref().is_none_or(|s| s.contains(&"/")) {
         tracked_files.extend(list_dot_git_at(&repo_root)?);
     }
 
@@ -137,7 +137,7 @@ fn list_dot_git_at<P: AsRef<Path>>(dir: P) -> Result<Vec<PathBuf>, CliError> {
                 let path = entry.path();
                 if path.is_file() {
                     Some(
-                        fs::canonicalize(&path)
+                        fs::canonicalize(path)
                             .map_err(|e| FileCantBeCanonicalized::with_debug(&path.display(), &e)),
                     )
                 } else {
@@ -193,12 +193,8 @@ pub fn clone_repo_to<P: AsRef<Path>, Q: AsRef<Path>>(
                 "file returned by list_git_tracked_files(...) does not have a valid parent dir",
             )
         })?)?;
-        let result = cp(&file, &destination_path);
-        if let Err(_) = result {
-            pr.warn(&format!(
-                "File {:?} not copied.",
-                file.strip_prefix(&repo_root).unwrap()
-            ));
+        if cp(&file, &destination_path).is_err() {
+            pr.warn(&format!("File {relative_path:?} not copied."));
         }
     }
 

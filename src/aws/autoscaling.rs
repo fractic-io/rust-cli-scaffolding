@@ -28,5 +28,5 @@ pub async fn set_auto_scaling_group_desired_size(
 }
 
 pub fn get_auto_scaling_group_name_from_arn(arn: &str) -> &str {
-    arn.split('/').last().unwrap_or_default()
+    arn.split('/').next_back().unwrap_or_default()
 }

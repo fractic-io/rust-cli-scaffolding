@@ -11,7 +11,7 @@ use aws_sdk_cloudformation::{
     types::{Capability, ChangeSetStatus, Parameter},
     Client,
 };
-use aws_smithy_runtime_api::client::waiters::error::WaiterError;
+use aws_smithy_runtime_api::client::waiters::{error::WaiterError, FinalPoll};
 
 use super::shared_config::config_from_profile;
 
@@ -123,6 +123,10 @@ fn derive_template_url(s3_bucket: &str, s3_region: &str, s3_key: &str) -> String
     format!("https://{s3_bucket}.s3.{s3_region}.amazonaws.com/{s3_key}")
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "public signature; an options struct would break every caller"
+)]
 pub async fn deploy_stack_from_s3(
     pr: &Printer,
     profile: &str,
@@ -172,7 +176,7 @@ pub async fn deploy_stack_from_s3(
                 .change_set_name(&changeset_name)
                 .wait(DEPLOY_WAIT_TIMEOUT)
                 .await
-                .map(|r| r.into_result());
+                .map(FinalPoll::into_result);
             match result {
                 Ok(Ok(final_poll))
                     if final_poll.status() == Some(&ChangeSetStatus::CreateComplete) =>
@@ -194,7 +198,7 @@ pub async fn deploy_stack_from_s3(
                     if failure_state
                         .final_poll()
                         .as_result()
-                        .map_or(false, |final_poll| {
+                        .is_ok_and(|final_poll| {
                             final_poll.status() == Some(&ChangeSetStatus::Failed)
                                 && final_poll
                                     .status_reason()
@@ -212,7 +216,7 @@ pub async fn deploy_stack_from_s3(
                         .map_err(|e| CloudFormationDeploymentFailed::with_debug(stack_name, &e))?;
                     pr.info("Changeset deleted.");
                 }
-                e @ _ => {
+                e => {
                     return Err(CloudFormationDeploymentFailed::with_debug(stack_name, &e));
                 }
             }

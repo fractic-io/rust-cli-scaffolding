@@ -125,7 +125,7 @@ where
     D: AsRef<Path>,
 {
     fs_extra::copy_items(
-        &vec![src.as_ref()],
+        &[src.as_ref()],
         dst.as_ref(),
         &fs_extra::dir::CopyOptions::new().overwrite(true),
     )

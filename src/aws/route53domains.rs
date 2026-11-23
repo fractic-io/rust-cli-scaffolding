@@ -17,7 +17,7 @@ define_cli_error!(
 );
 
 // Since Route53 is a global service, we can use any region.
-const DEFAULT_REGION: &'static str = "us-east-1";
+const DEFAULT_REGION: &str = "us-east-1";
 
 pub async fn set_route53_domain_nameservers(
     profile: &str,
@@ -36,7 +36,7 @@ pub async fn set_route53_domain_nameservers(
                     NameserverBuilder::default()
                         .name(ns)
                         .build()
-                        .map_err(|e| Route53DomainInvalidNameserver::with_debug(&ns, &e))
+                        .map_err(|e| Route53DomainInvalidNameserver::with_debug(ns, &e))
                 })
                 .collect::<Result<Vec<Nameserver>, CliError>>()?,
         ))

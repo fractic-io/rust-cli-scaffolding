@@ -23,7 +23,7 @@ where
     fn select(self) -> Result<T, CliError> {
         let items = self.into_iter().collect::<Vec<_>>();
         if items.is_empty() {
-            return Err(NoItemsError::new(get_type_name::<T>()).into());
+            return Err(NoItemsError::new(get_type_name::<T>()));
         }
         inquire::Select::new(get_type_name::<T>(), items)
             .with_vim_mode(true)
@@ -34,7 +34,7 @@ where
     fn multi_select(self) -> Result<Vec<T>, CliError> {
         let items = self.into_iter().collect::<Vec<_>>();
         if items.is_empty() {
-            return Err(NoItemsError::new(get_type_name::<T>()).into());
+            return Err(NoItemsError::new(get_type_name::<T>()));
         }
         inquire::MultiSelect::new(get_type_name::<T>(), items)
             .with_vim_mode(true)
@@ -59,7 +59,7 @@ where
         let items = T::iter().collect::<Vec<_>>();
 
         if items.is_empty() {
-            return Err(NoItemsError::new(get_type_name::<T>()).into());
+            return Err(NoItemsError::new(get_type_name::<T>()));
         }
 
         inquire::Select::new(get_type_name::<T>(), items)
@@ -72,7 +72,7 @@ where
         let items = T::iter().collect::<Vec<_>>();
 
         if items.is_empty() {
-            return Err(NoItemsError::new(get_type_name::<T>()).into());
+            return Err(NoItemsError::new(get_type_name::<T>()));
         }
 
         inquire::MultiSelect::new(get_type_name::<T>(), items)

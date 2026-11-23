@@ -24,9 +24,9 @@ pub struct EcsTaskNetworkConfiguration {
     pub assign_public_ip: Option<bool>,
 }
 
-impl Into<LaunchType> for EcsTaskLaunchType {
-    fn into(self) -> LaunchType {
-        match self {
+impl From<EcsTaskLaunchType> for LaunchType {
+    fn from(launch_type: EcsTaskLaunchType) -> Self {
+        match launch_type {
             EcsTaskLaunchType::Ec2 => LaunchType::Ec2,
             EcsTaskLaunchType::Fargate => LaunchType::Fargate,
         }
@@ -153,7 +153,7 @@ pub async fn set_capacity_provider_desired_size(
         .auto_scaling_group_arn
         .clone();
     let auto_scaling_group_name = get_auto_scaling_group_name_from_arn(&auto_scaling_group_arn);
-    set_auto_scaling_group_desired_size(pr, profile, region, &auto_scaling_group_name, desired_size)
+    set_auto_scaling_group_desired_size(pr, profile, region, auto_scaling_group_name, desired_size)
         .await
 }
 

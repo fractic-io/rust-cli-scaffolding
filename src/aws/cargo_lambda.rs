@@ -39,7 +39,6 @@ pub async fn cargo_lambda_build_to_s3(
         ExecuteOptions {
             dir: Some(crate_dir),
             env: Some(lambda_build_env()),
-            ..Default::default()
         },
     )
     .await?;

@@ -17,7 +17,7 @@ use crate::{continue_after_enter, yes_no, CliError};
 /// Status to stdout, warnings and errors to stderr, notifications to the
 /// desktop. With `FRACTIC_CLI_QUIET` set, no status and no notifications
 /// (`QUIET_ENV`).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Printer;
 
 /// What a notification means to the reader. Its serde and `ValueEnum` name is
@@ -181,7 +181,7 @@ impl StatusBarPrinter {
 
     fn close(&mut self) {
         let Some(out) = &mut self.out else { return };
-        write!(out, "\n").unwrap();
+        writeln!(out).unwrap();
         out.flush().unwrap();
     }
 }
