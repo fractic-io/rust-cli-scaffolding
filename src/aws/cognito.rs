@@ -6,7 +6,7 @@ use aws_sdk_cognitoidentityprovider::{
     Client,
 };
 
-use super::shared_config::config_from_profile;
+use super::shared_config::aws_config_from_profile;
 
 define_cli_error!(CognitoError, "Error running AWS Cognito command.");
 
@@ -16,7 +16,7 @@ pub async fn user_exists(
     user_pool_id: &str,
     username: &str,
 ) -> Result<bool, CliError> {
-    let client = Client::new(&config_from_profile(profile, region).await);
+    let client = Client::new(&aws_config_from_profile(profile, region).await);
     let response = client
         .admin_get_user()
         .user_pool_id(user_pool_id)
@@ -49,7 +49,7 @@ pub async fn create_user_if_not_exists(
         Ok(false)
     } else {
         printer.info(&format!("Creating user '{}'...", username));
-        let client = Client::new(&config_from_profile(profile, region).await);
+        let client = Client::new(&aws_config_from_profile(profile, region).await);
         client
             .admin_create_user()
             .user_pool_id(user_pool_id)
@@ -99,7 +99,7 @@ pub async fn add_user_to_group(
         "Adding user '{}' to group '{}'...",
         username, group
     ));
-    let client = Client::new(&config_from_profile(profile, region).await);
+    let client = Client::new(&aws_config_from_profile(profile, region).await);
     client
         .admin_add_user_to_group()
         .user_pool_id(user_pool_id)

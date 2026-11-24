@@ -37,4 +37,5 @@ pub use s3::*;
 pub use sam::*;
 pub use secrets::*;
 pub use ses::*;
+pub use shared_config::*;
 pub use ssm::*;
