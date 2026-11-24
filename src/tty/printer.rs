@@ -2,10 +2,7 @@ use std::{
     future::Future,
     io::{StdoutLock, Write as _},
     pin::Pin,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        OnceLock,
-    },
+    sync::atomic::{AtomicBool, Ordering},
 };
 
 use clap::ValueEnum;
@@ -48,11 +45,11 @@ impl Printer {
         Printer
     }
 
-    /// Turns status output off for the rest of the process (`quiet`), as
-    /// `FRACTIC_CLI_QUIET` does: for a command whose stdout another program
-    /// reads. Call it before the first status line.
+    /// Turns status output off for the rest of the process (`quiet`): for a
+    /// command whose stdout another program reads. Call it before the first
+    /// status line.
     pub fn set_quiet() {
-        QUIET_SET.store(true, Ordering::Relaxed);
+        QUIET.store(true, Ordering::Relaxed);
     }
 
     pub(crate) fn section_open(&self, title: &str) {
@@ -205,10 +202,7 @@ impl Drop for StatusBarPrinter {
 // Internal: Status output.
 // ----------------------------------------------------------------------------
 
-/// Set to a non-empty value, status output is off from the start (`quiet`).
-const QUIET_ENV: &str = "FRACTIC_CLI_QUIET";
-
-static QUIET_SET: AtomicBool = AtomicBool::new(false);
+static QUIET: AtomicBool = AtomicBool::new(false);
 
 /// Whether status output is off. Then the printer writes no status (sections,
 /// info, success, the closing lines of `Tty::close`, status bars) and raises
@@ -216,10 +210,7 @@ static QUIET_SET: AtomicBool = AtomicBool::new(false);
 /// a caller that parses it, and a scripted failure is not a desktop alert.
 /// Warnings and errors go to stderr.
 fn quiet() -> bool {
-    static QUIET_FROM_ENV: OnceLock<bool> = OnceLock::new();
-    QUIET_SET.load(Ordering::Relaxed)
-        || *QUIET_FROM_ENV
-            .get_or_init(|| std::env::var_os(QUIET_ENV).is_some_and(|value| !value.is_empty()))
+    QUIET.load(Ordering::Relaxed)
 }
 
 fn status(line: impl std::fmt::Display) {
