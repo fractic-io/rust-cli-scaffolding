@@ -226,8 +226,7 @@ fn status(line: impl std::fmt::Display) {
 /// A command that takes over showing notifications, for example to forward
 /// them to another machine: a program and leading arguments, split on
 /// whitespace. The arguments `--app-name <executable name> --kind <NotifyKind>
-/// -- <title> <message>` are appended to it: after `--`, a title or message
-/// that starts with `-` is not read as an option. The relay runs without this
+/// -- <title> <message>` are appended to it. The relay runs without this
 /// variable, so a relay built on this crate shows its own notifications
 /// directly. A relay that exits non-zero has not delivered the notification,
 /// which is then shown directly.
