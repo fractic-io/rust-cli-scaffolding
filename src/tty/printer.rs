@@ -225,8 +225,8 @@ fn status(line: impl std::fmt::Display) {
 
 /// A command that takes over showing notifications, for example to forward
 /// them to another machine: a program and leading arguments, split on
-/// whitespace. The arguments `<title> <message> --app-name <executable name>
-/// --kind <NotifyKind>` are appended to it. The relay runs without this
+/// whitespace. The arguments `--app-name <executable name> --kind <NotifyKind>
+/// -- <title> <message>` are appended to it. The relay runs without this
 /// variable, so a relay built on this crate shows its own notifications
 /// directly. A relay that exits non-zero has not delivered the notification,
 /// which is then shown directly.
@@ -276,7 +276,8 @@ fn relay_notification(
         .unwrap_or_default();
     let child = std::process::Command::new(program)
         .args(leading_args)
-        .args([title, message, "--app-name", &app_name, "--kind", &kind_arg])
+        .args(["--app-name", &app_name, "--kind", &kind_arg])
+        .args(["--", title, message])
         .env_remove(NOTIFY_RELAY_ENV)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
