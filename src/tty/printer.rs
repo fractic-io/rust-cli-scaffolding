@@ -277,7 +277,8 @@ fn relay_notification(
         .unwrap_or_default();
     let child = std::process::Command::new(program)
         .args(leading_args)
-        .args(["--app-name", &app_name, "--kind", &kind_arg, "--", title, message])
+        .args(["--app-name", &app_name, "--kind", &kind_arg])
+        .args(["--", title, message])
         .env_remove(NOTIFY_RELAY_ENV)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
