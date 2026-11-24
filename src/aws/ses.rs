@@ -1,7 +1,7 @@
 use crate::{define_cli_error, CliError};
 use aws_sdk_ses::{types::VerificationStatus, Client};
 
-use super::shared_config::config_from_profile;
+use super::shared_config::aws_config_from_profile;
 
 define_cli_error!(
     SesIdentityValidationError,
@@ -19,7 +19,7 @@ pub async fn require_ses_identity(
     region: &str,
     identity: &str,
 ) -> Result<(), CliError> {
-    let client = Client::new(&config_from_profile(profile, region).await);
+    let client = Client::new(&aws_config_from_profile(profile, region).await);
 
     let result = client
         .get_identity_verification_attributes()

@@ -2,7 +2,7 @@ use std::{
     future::Future,
     io::{StdoutLock, Write as _},
     pin::Pin,
-    sync::OnceLock,
+    sync::atomic::{AtomicBool, Ordering},
 };
 
 use clap::ValueEnum;
@@ -15,8 +15,8 @@ use serde::{Deserialize, Serialize};
 use crate::{continue_after_enter, yes_no, CliError};
 
 /// Status to stdout, warnings and errors to stderr, notifications to the
-/// desktop or to a relay command (`NOTIFY_RELAY_ENV`). With `FRACTIC_CLI_QUIET`
-/// set, no status and no notifications (`QUIET_ENV`).
+/// desktop or to a relay command (`NOTIFY_RELAY_ENV`). While status output is
+/// off (`quiet`), no status and no notifications.
 #[derive(Debug, Clone)]
 pub struct Printer;
 
@@ -34,7 +34,7 @@ pub enum NotifyKind {
     Error,
 }
 
-/// Writes nothing while status output is off (`QUIET_ENV`).
+/// Writes nothing while status output is off (`quiet`).
 #[derive(Debug)]
 pub struct StatusBarPrinter {
     out: Option<StdoutLock<'static>>,
@@ -43,6 +43,13 @@ pub struct StatusBarPrinter {
 impl Printer {
     pub fn new() -> Self {
         Printer
+    }
+
+    /// Turns status output off for the rest of the process (`quiet`): for a
+    /// command whose stdout another program reads. Call it before the first
+    /// status line.
+    pub fn set_quiet() {
+        QUIET.store(true, Ordering::Relaxed);
     }
 
     pub(crate) fn section_open(&self, title: &str) {
@@ -90,7 +97,7 @@ impl Printer {
         status(message.bright_blue());
     }
 
-    /// On stdout, or on stderr while status output is off (`QUIET_ENV`).
+    /// On stdout, or on stderr while status output is off (`quiet`).
     pub fn warn(&self, message: &str) {
         if quiet() {
             eprintln!("{}", message.yellow());
@@ -126,7 +133,7 @@ impl Printer {
     /// Hands the notification to the relay command when one is set
     /// (`NOTIFY_RELAY_ENV`). Without a relay, or when it fails, shows the
     /// notification directly, unless the process runs inside SSH. Does nothing
-    /// while status output is off (`QUIET_ENV`).
+    /// while status output is off (`quiet`).
     pub fn notify(&self, kind: NotifyKind, title: &str, message: &str) {
         if quiet() {
             return;
@@ -196,16 +203,15 @@ impl Drop for StatusBarPrinter {
 // Internal: Status output.
 // ----------------------------------------------------------------------------
 
-/// Set to a non-empty value, the printer writes no status (sections, info,
-/// success, the closing lines of `Tty::close`, status bars) and raises no
-/// notifications: stdout then carries only what the command itself prints, for
+static QUIET: AtomicBool = AtomicBool::new(false);
+
+/// Whether status output is off. Then the printer writes no status (sections,
+/// info, success, the closing lines of `Tty::close`, status bars) and raises
+/// no notifications: stdout carries only what the command itself prints, for
 /// a caller that parses it, and a scripted failure is not a desktop alert.
 /// Warnings and errors go to stderr.
-const QUIET_ENV: &str = "FRACTIC_CLI_QUIET";
-
 fn quiet() -> bool {
-    static QUIET: OnceLock<bool> = OnceLock::new();
-    *QUIET.get_or_init(|| std::env::var_os(QUIET_ENV).is_some_and(|value| !value.is_empty()))
+    QUIET.load(Ordering::Relaxed)
 }
 
 fn status(line: impl std::fmt::Display) {
