@@ -4,7 +4,7 @@ use aws_sdk_ecs::{
     Client,
 };
 
-use super::shared_config::config_from_profile;
+use super::shared_config::aws_config_from_profile;
 use crate::{get_auto_scaling_group_name_from_arn, set_auto_scaling_group_desired_size};
 
 define_cli_error!(EcsError, "Error running AWS ECS command.");
@@ -39,7 +39,7 @@ pub async fn cluster_has_running_task_for_family(
     cluster: &str,
     task_definition_family: &str,
 ) -> Result<bool, CliError> {
-    let client = Client::new(&config_from_profile(profile, region).await);
+    let client = Client::new(&aws_config_from_profile(profile, region).await);
     let response = client
         .list_tasks()
         .cluster(cluster)
@@ -63,7 +63,7 @@ pub async fn run_task(
         "Running task '{}' on cluster '{}' ({})...",
         task_definition, cluster, region
     ));
-    let client = Client::new(&config_from_profile(profile, region).await);
+    let client = Client::new(&aws_config_from_profile(profile, region).await);
     client
         .run_task()
         .cluster(cluster)
@@ -136,7 +136,7 @@ pub async fn set_capacity_provider_desired_size(
     capacity_provider: &str,
     desired_size: i32,
 ) -> Result<(), CliError> {
-    let client = Client::new(&config_from_profile(profile, region).await);
+    let client = Client::new(&aws_config_from_profile(profile, region).await);
     let auto_scaling_group_arn = client
         .describe_capacity_providers()
         .send()
@@ -167,7 +167,7 @@ pub async fn stop_all_tasks(
         "Stopping all tasks on cluster '{}' ({})...",
         cluster, region
     ));
-    let client = Client::new(&config_from_profile(profile, region).await);
+    let client = Client::new(&aws_config_from_profile(profile, region).await);
     let tasks = client
         .list_tasks()
         .cluster(cluster)
