@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::{define_cli_error, CliError, IOError, Printer};
-use aws_sdk_cloudformation::error::SdkError;
+use aws_sdk_s3::error::SdkError;
 use aws_sdk_s3::{
     operation::head_bucket::HeadBucketError, types::CreateBucketConfiguration, Client,
 };
