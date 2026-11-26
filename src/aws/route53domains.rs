@@ -4,7 +4,7 @@ use aws_sdk_route53domains::{
     Client,
 };
 
-use super::shared_config::config_from_profile;
+use super::shared_config::aws_config_from_profile;
 
 define_cli_error!(
     Route53DomainError,
@@ -24,7 +24,7 @@ pub async fn set_route53_domain_nameservers(
     domain: &str,
     nameservers: Vec<&str>,
 ) -> Result<(), CliError> {
-    let client = Client::new(&config_from_profile(profile, DEFAULT_REGION).await);
+    let client = Client::new(&aws_config_from_profile(profile, DEFAULT_REGION).await);
 
     client
         .update_domain_nameservers()

@@ -13,7 +13,7 @@ use aws_sdk_cloudformation::{
 };
 use aws_smithy_runtime_api::client::waiters::{error::WaiterError, FinalPoll};
 
-use super::shared_config::config_from_profile;
+use super::shared_config::aws_config_from_profile;
 
 define_cli_error!(CloudFormationError, "Error running CloudFormation command.");
 define_cli_error!(
@@ -45,7 +45,7 @@ pub enum StackDeploymentMethod {
 }
 
 pub async fn stack_exists(profile: &str, region: &str, stack_name: &str) -> Result<bool, CliError> {
-    let client = Client::new(&config_from_profile(profile, region).await);
+    let client = Client::new(&aws_config_from_profile(profile, region).await);
     let response = client.describe_stacks().stack_name(stack_name).send().await;
     match response {
         Ok(v) => Ok(!v.stacks.unwrap_or_default().is_empty()),
@@ -60,7 +60,7 @@ pub async fn require_stack_outputs(
     stack_name: &str,
     output_keys: HashSet<String>,
 ) -> Result<HashMap<String, String>, CliError> {
-    let client = Client::new(&config_from_profile(profile, region).await);
+    let client = Client::new(&aws_config_from_profile(profile, region).await);
 
     let response = client
         .describe_stacks()
@@ -138,7 +138,7 @@ pub async fn deploy_stack_from_s3(
     method: StackDeploymentMethod,
     parameters: HashMap<String, String>,
 ) -> Result<(), CliError> {
-    let client = Client::new(&config_from_profile(profile, stack_region).await);
+    let client = Client::new(&aws_config_from_profile(profile, stack_region).await);
 
     let s3_url = derive_template_url(s3_bucket, s3_region, s3_key);
     let parameters = parameters

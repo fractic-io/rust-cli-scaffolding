@@ -1,7 +1,7 @@
 use crate::{define_cli_error, CliError};
 use aws_sdk_acm::{types::CertificateStatus, Client};
 
-use super::shared_config::config_from_profile;
+use super::shared_config::aws_config_from_profile;
 
 define_cli_error!(AcmError, "Error running AWS ACM command.");
 
@@ -20,7 +20,7 @@ pub async fn get_acm_certificate_arn_for_domain(
     domain: &str,
 ) -> Result<Option<String>, CliError> {
     let target = normalize_domain(domain);
-    let client = Client::new(&config_from_profile(profile, region).await);
+    let client = Client::new(&aws_config_from_profile(profile, region).await);
 
     let mut next_token: Option<String> = None;
     let mut wildcard_candidate: Option<String> = None;

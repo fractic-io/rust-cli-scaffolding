@@ -30,7 +30,7 @@ textwrap = "^0.16.1"
 tokio = { version = "^1.42.0", features = ["macros", "signal", "io-std", "io-util", "time", "process"] }
 uuid = { version = "^1.11.0", features = ["v4"] }
 
-# Feature `aws`.
+# Features `aws-*`.
 aws-config = { version = "^1.5.9", optional = true }
 aws-sdk-acm = { version = "^1.84.0", optional = true }
 aws-sdk-autoscaling = { version = "^1.57.0", optional = true }
@@ -80,31 +80,52 @@ tokio = { version = "^1.42.0", features = ["rt", "macros"] }
 
 [features]
 default = []
+# Every AWS helper. A consumer that calls few services names their `aws-*`
+# features instead: each one compiles a whole AWS SDK crate.
 aws = [
-    "dep:aws-config",
-    "dep:aws-sdk-acm",
-    "dep:aws-sdk-autoscaling",
-    "dep:aws-sdk-cloudformation",
-    "dep:aws-sdk-cloudwatchlogs",
-    "dep:aws-sdk-cognitoidentityprovider",
-    "dep:aws-sdk-ecr",
-    "dep:aws-sdk-ecs",
-    "dep:aws-sdk-iam",
-    "dep:aws-sdk-route53",
-    "dep:aws-sdk-route53domains",
+    "aws-acm",
+    "aws-autoscaling",
+    "aws-cloudformation",
+    "aws-cognito",
+    "aws-ecr",
+    "aws-ecs",
+    "aws-iam",
+    "aws-lambda",
+    "aws-logs",
+    "aws-route53",
+    "aws-route53domains",
+    "aws-s3",
+    "aws-secrets",
+    "aws-ses",
+    "aws-ssm",
+]
+# Profile, account and SDK configuration helpers, which every `aws-*` feature
+# builds on.
+aws-base = ["dep:aws-config", "dep:aws-sdk-sts", "dep:aws-smithy-runtime-api"]
+aws-acm = ["aws-base", "dep:aws-sdk-acm"]
+aws-autoscaling = ["aws-base", "dep:aws-sdk-autoscaling"]
+aws-cloudformation = ["aws-base", "dep:aws-sdk-cloudformation", "dep:chrono"]
+aws-cognito = ["aws-base", "dep:aws-sdk-cognitoidentityprovider"]
+aws-ecr = ["aws-base", "dep:aws-sdk-ecr", "dep:base64"]
+aws-ecs = ["aws-autoscaling", "dep:aws-sdk-ecs"]
+aws-iam = ["aws-base", "dep:aws-sdk-iam"]
+# cargo-lambda and SAM builds.
+aws-lambda = ["aws-s3"]
+aws-logs = ["aws-base", "dep:aws-sdk-cloudwatchlogs"]
+aws-route53 = ["aws-base", "dep:aws-sdk-route53"]
+aws-route53domains = ["aws-base", "dep:aws-sdk-route53domains"]
+aws-s3 = [
+    "aws-base",
     "dep:aws-sdk-s3",
-    "dep:aws-sdk-secretsmanager",
-    "dep:aws-sdk-ses",
-    "dep:aws-sdk-ssm",
-    "dep:aws-sdk-sts",
-    "dep:aws-smithy-runtime-api",
-    "dep:base64",
     "dep:chrono",
     "dep:futures-util",
     "dep:hex",
     "dep:walkdir",
 ]
-docker = ["aws", "dep:bollard", "dep:futures-util", "tokio/full"]
+aws-secrets = ["aws-base", "dep:aws-sdk-secretsmanager"]
+aws-ses = ["aws-base", "dep:aws-sdk-ses"]
+aws-ssm = ["aws-base", "dep:aws-sdk-ssm"]
+docker = ["aws-ecr", "dep:bollard", "dep:futures-util", "tokio/full"]
 flutter = ["dep:hash"]
 git = ["dep:git2", "dep:walkdir"]
 image = ["dep:magick_rust"]
