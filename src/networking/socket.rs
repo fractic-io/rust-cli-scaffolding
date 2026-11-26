@@ -38,7 +38,7 @@ pub fn kill_open_sockets_on_port(pr: &Printer, port: u16) -> Result<(), CliError
     for socket in sockets_info {
         if let ProtocolSocketInfo::Tcp(tcp_socket) = socket.protocol_socket_info {
             if tcp_socket.local_port == port {
-                if let Some(pid) = socket.associated_pids.get(0) {
+                if let Some(pid) = socket.associated_pids.first() {
                     pr.warn(&format!(
                         "WARNING: Closing existing connection on port {port} (PID: {pid})...",
                     ));

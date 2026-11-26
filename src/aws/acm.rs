@@ -72,13 +72,13 @@ pub async fn get_acm_certificate_arn_for_domain(
                     }
 
                     // Otherwise, consider wildcard match from SANs if we don't have one yet.
-                    if wildcard_candidate.is_none() {
-                        if cert.subject_alternative_names().iter().any(|name| {
+                    if wildcard_candidate.is_none()
+                        && cert.subject_alternative_names().iter().any(|name| {
                             let n = normalize_domain(name);
                             wildcard_matches(&n, &target)
-                        }) {
-                            wildcard_candidate = Some(arn.to_string());
-                        }
+                        })
+                    {
+                        wildcard_candidate = Some(arn.to_string());
                     }
                 }
             }

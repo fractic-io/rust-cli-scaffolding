@@ -48,16 +48,14 @@ pub struct ExecuteOptions<'a> {
     pub env: Option<Vec<(String, String)>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Executor {
     background_processes: Vec<tokio::process::Child>,
 }
 
 impl Executor {
     pub fn new() -> Self {
-        Executor {
-            background_processes: Vec::new(),
-        }
+        Self::default()
     }
 
     pub async fn has_command(&self, program: &str) -> bool {

@@ -84,8 +84,7 @@ impl WildcardMatcher {
         // - Anchor with ^ and $
         let mut regex_pattern = String::from("^");
 
-        let mut chars = pattern.chars().peekable();
-        while let Some(ch) = chars.next() {
+        for ch in pattern.chars() {
             match ch {
                 '*' => regex_pattern.push_str(".*"),
                 '?' => regex_pattern.push('.'),

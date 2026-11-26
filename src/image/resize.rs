@@ -94,7 +94,7 @@ where
         // Composite the resized “wand” (the original image we resized in-place)
         // onto the canvas.
         canvas
-            .compose_images(&wand, CompositeOperator::Over, true, offset_x, offset_y)
+            .compose_images(wand, CompositeOperator::Over, true, offset_x, offset_y)
             .into_cli_res()?;
 
         // Replace the original `wand` with our new “canvas” result.

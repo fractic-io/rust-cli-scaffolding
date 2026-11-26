@@ -223,7 +223,7 @@ pub fn flutter_build(
                     pr,
                     export_plist_content,
                     &export_plist_path,
-                    || build_fn(),
+                    build_fn,
                 )
             })
         })?;

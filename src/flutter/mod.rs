@@ -1,5 +1,5 @@
 mod android;
-mod flutter;
+mod app;
 
 pub use android::*;
-pub use flutter::*;
+pub use app::*;
