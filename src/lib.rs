@@ -18,7 +18,7 @@ pub use processing::*;
 pub use tty::*;
 pub use user_input::*;
 
-#[cfg(feature = "aws")]
+#[cfg(feature = "aws-base")]
 mod aws;
 #[cfg(feature = "docker")]
 mod docker;
@@ -31,7 +31,7 @@ mod image;
 #[cfg(feature = "networking")]
 mod networking;
 
-#[cfg(feature = "aws")]
+#[cfg(feature = "aws-base")]
 pub use aws::*;
 #[cfg(feature = "docker")]
 pub use docker::*;
