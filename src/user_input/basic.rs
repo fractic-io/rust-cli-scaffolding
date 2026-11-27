@@ -1,24 +1,38 @@
 use std::{io::Write as _, time::Duration};
 
+use inquire::InquireError;
 use tokio::{io::AsyncBufReadExt as _, time::timeout};
 
-use crate::{define_cli_error, CliError, IOError};
+use crate::{define_cli_error, CliError, IOError, UserCancelled};
 
-define_cli_error!(UserCancelled, "User cancelled operation.");
+define_cli_error!(PromptError, "Prompt failed.");
+
+/// The error for a failed `inquire` prompt: [`UserCancelled`] for Esc or
+/// Ctrl-C, `failure(&error)` for anything else.
+pub fn prompt_failure(
+    error: InquireError,
+    failure: impl FnOnce(&InquireError) -> CliError,
+) -> CliError {
+    match error {
+        InquireError::OperationCanceled | InquireError::OperationInterrupted => {
+            UserCancelled::new()
+        }
+        error => failure(&error),
+    }
+}
 
 pub fn confirm() -> Result<(), CliError> {
     match inquire::Confirm::new("Are you sure?").prompt() {
         Ok(true) => Ok(()),
-        Ok(false) | Err(_) => Err(UserCancelled::new()),
+        Ok(false) => Err(UserCancelled::new()),
+        Err(error) => Err(prompt_failure(error, |e| PromptError::with_debug(e))),
     }
 }
 
 pub fn yes_no(prompt: &str) -> Result<bool, CliError> {
-    match inquire::Confirm::new(prompt).prompt() {
-        Ok(true) => Ok(true),
-        Ok(false) => Ok(false),
-        Err(_) => Err(UserCancelled::new()),
-    }
+    inquire::Confirm::new(prompt)
+        .prompt()
+        .map_err(|error| prompt_failure(error, |e| PromptError::with_debug(e)))
 }
 
 pub fn continue_after_enter(message: Option<&str>) -> Result<(), CliError> {
@@ -75,7 +89,7 @@ pub fn ask(prompt: &'static str) -> Result<String, CliError> {
             }
         })
         .prompt()
-        .map_err(|e| UserCancelled::with_debug(&e))
+        .map_err(|error| prompt_failure(error, |e| PromptError::with_debug(e)))
 }
 
 pub fn ask_secure(prompt: &'static str) -> Result<String, CliError> {
@@ -90,12 +104,36 @@ pub fn ask_secure(prompt: &'static str) -> Result<String, CliError> {
             }
         })
         .prompt()
-        .map_err(|e| UserCancelled::with_debug(&e))
+        .map_err(|error| prompt_failure(error, |e| PromptError::with_debug(e)))
 }
 
 pub fn ask_optional(prompt: &'static str) -> Result<Option<String>, CliError> {
     inquire::Text::new(prompt)
         .prompt()
-        .map_err(|e| UserCancelled::with_debug(&e))
+        .map_err(|error| prompt_failure(error, |e| PromptError::with_debug(e)))
         .map(|x| if x.is_empty() { None } else { Some(x) })
+}
+
+// Tests.
+// ----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use crate::CliErrorKind;
+
+    use super::*;
+
+    #[test]
+    fn esc_and_ctrl_c_are_cancels_and_other_failures_are_not() {
+        for error in [
+            InquireError::OperationCanceled,
+            InquireError::OperationInterrupted,
+        ] {
+            let cancel = prompt_failure(error, |e| PromptError::with_debug(e));
+            assert_eq!(cancel.kind(), CliErrorKind::Cancelled);
+        }
+        let failure = prompt_failure(InquireError::NotTTY, |e| PromptError::with_debug(e));
+        assert_eq!(failure.kind(), CliErrorKind::Failure);
+        assert_eq!(failure.message(), "Prompt failed.");
+    }
 }

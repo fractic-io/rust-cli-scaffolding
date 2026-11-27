@@ -2,10 +2,10 @@ use std::fmt;
 
 use strum::IntoEnumIterator;
 
-use crate::{define_cli_error, CliError};
+use crate::{define_cli_error, define_cli_user_error, prompt_failure, CliError};
 
 define_cli_error!(SelectionError, "Selection failed.");
-define_cli_error!(NoItemsError, "No {type_name} items to select from.", { type_name: &str });
+define_cli_user_error!(NoItemsError, "No {type_name} items to select from.", { type_name: &str });
 
 pub trait Selectable {
     type Item;
@@ -28,7 +28,7 @@ where
         inquire::Select::new(get_type_name::<T>(), items)
             .with_vim_mode(true)
             .prompt()
-            .map_err(|e| SelectionError::with_debug(&e))
+            .map_err(|error| prompt_failure(error, |e| SelectionError::with_debug(e)))
     }
 
     fn multi_select(self) -> Result<Vec<T>, CliError> {
@@ -39,7 +39,7 @@ where
         inquire::MultiSelect::new(get_type_name::<T>(), items)
             .with_vim_mode(true)
             .prompt()
-            .map_err(|e| SelectionError::with_debug(&e))
+            .map_err(|error| prompt_failure(error, |e| SelectionError::with_debug(e)))
     }
 }
 
@@ -65,7 +65,7 @@ where
         inquire::Select::new(get_type_name::<T>(), items)
             .with_vim_mode(true)
             .prompt()
-            .map_err(|e| SelectionError::with_debug(&e))
+            .map_err(|error| prompt_failure(error, |e| SelectionError::with_debug(e)))
     }
 
     fn multi_select() -> Result<Vec<Self::Item>, CliError> {
@@ -78,7 +78,7 @@ where
         inquire::MultiSelect::new(get_type_name::<T>(), items)
             .with_vim_mode(true)
             .prompt()
-            .map_err(|e| SelectionError::with_debug(&e))
+            .map_err(|error| prompt_failure(error, |e| SelectionError::with_debug(e)))
     }
 }
 
