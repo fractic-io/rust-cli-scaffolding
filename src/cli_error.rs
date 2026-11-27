@@ -93,6 +93,36 @@ impl CliErrorContext {
     }
 }
 
+/// Reports a CLI error being constructed to the process-wide error sink of
+/// `fractic-server-error`: a failure as kind `cli`, a user error as `user`. A
+/// cancel is the user backing out, not an error, and is not reported. Called
+/// by `define_cli_error!`; not for direct use.
+#[doc(hidden)]
+pub fn __report_cli_error(
+    kind: CliErrorKind,
+    fingerprint: &str,
+    template: &str,
+    location: &std::panic::Location<'_>,
+    message: &str,
+    debug: Option<&str>,
+    context: &str,
+) {
+    let kind = match kind {
+        CliErrorKind::Failure => fractic_server_error::ErrorKind::Cli,
+        CliErrorKind::User => fractic_server_error::ErrorKind::User,
+        CliErrorKind::Cancelled => return,
+    };
+    fractic_server_error::__report(
+        fingerprint,
+        template,
+        kind,
+        location,
+        message,
+        debug,
+        context,
+    );
+}
+
 /// `define_cli_error!(Name, "Message.")` defines an error type of kind
 /// [`CliErrorKind::Failure`] whose `new()` and `with_debug(&debug)` return a
 /// [`CliError`]. Add `{ field: Type }` for arguments interpolated into the
@@ -117,6 +147,10 @@ macro_rules! define_cli_error {
         }
 
         impl $name {
+            /// Stable grouping key: `module_path!()::TypeName`.
+            #[allow(dead_code)]
+            pub const FINGERPRINT: &str = concat!(module_path!(), "::", stringify!($name));
+
             #[allow(dead_code)]
             #[allow(
                 clippy::new_ret_no_self,
@@ -124,12 +158,23 @@ macro_rules! define_cli_error {
             )]
             #[track_caller]
             pub fn new($($arg: $argtype),*) -> $crate::CliError {
-                Box::new($name {
+                let location = ::std::panic::Location::caller();
+                let error = $name {
                     context: $crate::CliErrorContext::capture(),
                     message: format!($msg, $($arg = $arg),*),
                     debug: None,
                     annotations: Vec::new(),
-                })
+                };
+                $crate::__report_cli_error(
+                    $kind,
+                    Self::FINGERPRINT,
+                    $msg,
+                    location,
+                    &error.message,
+                    None,
+                    &error.context,
+                );
+                Box::new(error)
             }
 
             #[allow(dead_code)]
@@ -138,12 +183,23 @@ macro_rules! define_cli_error {
                 $($arg: $argtype,)*
                 debug: &D,
             ) -> $crate::CliError where D: std::fmt::Debug {
-                Box::new($name {
+                let location = ::std::panic::Location::caller();
+                let error = $name {
                     context: $crate::CliErrorContext::capture(),
                     message: format!($msg, $($arg = $arg),*),
                     debug: Some(format!("{:#?}", debug)),
                     annotations: Vec::new(),
-                })
+                };
+                $crate::__report_cli_error(
+                    $kind,
+                    Self::FINGERPRINT,
+                    $msg,
+                    location,
+                    &error.message,
+                    error.debug.as_deref(),
+                    &error.context,
+                );
+                Box::new(error)
             }
         }
 
@@ -249,9 +305,27 @@ impl From<fractic_server_error::ServerError> for CliError {
 
 #[cfg(test)]
 mod tests {
-    use fractic_server_error::{define_internal_error, define_user_error};
+    use std::sync::{Mutex, OnceLock};
+
+    use fractic_server_error::{define_internal_error, define_user_error, install_error_sink};
 
     use super::*;
+
+    /// `(fingerprint, kind)` of every error the process-wide sink saw.
+    fn reported() -> &'static Mutex<Vec<(String, fractic_server_error::ErrorKind)>> {
+        static SEEN: OnceLock<Mutex<Vec<(String, fractic_server_error::ErrorKind)>>> =
+            OnceLock::new();
+        SEEN.get_or_init(|| {
+            install_error_sink(Box::new(|event| {
+                if let Some(seen) = SEEN.get() {
+                    if let Ok(mut seen) = seen.lock() {
+                        seen.push((event.fingerprint.to_owned(), event.kind));
+                    }
+                }
+            }));
+            Mutex::new(Vec::new())
+        })
+    }
 
     define_cli_error!(Broke, "It broke: {details}.", { details: &str });
     define_cli_user_error!(NothingToSelect, "Nothing to select.");
@@ -285,6 +359,30 @@ mod tests {
         let printed = error.to_string();
         assert!(printed.contains("User cancelled operation."));
         assert!(!printed.contains(file!()));
+    }
+
+    #[test]
+    fn the_sink_sees_failures_and_user_errors_but_no_cancel() {
+        let seen = reported();
+        let _failure = Broke::new("disk");
+        let _user = NothingToSelect::new();
+        let _cancel = UserCancelled::new();
+
+        let seen = seen.lock().unwrap();
+        let kind_of = |fingerprint: &str| {
+            seen.iter()
+                .find(|(seen, _)| seen == fingerprint)
+                .map(|(_, kind)| *kind)
+        };
+        assert_eq!(
+            kind_of(Broke::FINGERPRINT),
+            Some(fractic_server_error::ErrorKind::Cli)
+        );
+        assert_eq!(
+            kind_of(NothingToSelect::FINGERPRINT),
+            Some(fractic_server_error::ErrorKind::User)
+        );
+        assert_eq!(kind_of(UserCancelled::FINGERPRINT), None);
     }
 
     #[test]

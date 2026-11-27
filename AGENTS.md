@@ -21,6 +21,10 @@ of the services it calls; `aws` is all of them.
 - Test with `--all-features`, and `cargo check --features <f>` for each
   feature alone when a dependency moves. `image` needs ImageMagick 7
   (MagickWand) and libclang at build time, for `magick_rust`'s bindgen.
+- `define_cli_error!` and `define_cli_user_error!` constructors report to
+  `fractic-server-error`'s process-wide error sink, a failure as kind `cli`
+  and a user error as `user`; a cancel is not reported. A CLI that installs
+  the sink so records its own errors next to the server errors.
 - An AWS helper is a free `pub async fn` in `src/aws/<service>.rs`. A new
   service gets a `mod` and `pub use` in `src/aws/mod.rs` behind a new
   `aws-<service>` feature, which `aws` lists; a terminal / file / input
