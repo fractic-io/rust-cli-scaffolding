@@ -1,7 +1,7 @@
 use crate::{define_cli_error, CliError, Printer};
 use aws_sdk_autoscaling::Client;
 
-use super::shared_config::config_from_profile;
+use super::shared_config::aws_config_from_profile;
 
 define_cli_error!(Ec2Error, "Error running AWS EC2 command.");
 
@@ -16,7 +16,7 @@ pub async fn set_auto_scaling_group_desired_size(
         "Setting desired size of auto scaling group '{}' to {}...",
         auto_scaling_group_name, desired_size
     ));
-    let client = Client::new(&config_from_profile(profile, region).await);
+    let client = Client::new(&aws_config_from_profile(profile, region).await);
     client
         .update_auto_scaling_group()
         .auto_scaling_group_name(auto_scaling_group_name)
@@ -28,5 +28,5 @@ pub async fn set_auto_scaling_group_desired_size(
 }
 
 pub fn get_auto_scaling_group_name_from_arn(arn: &str) -> &str {
-    arn.split('/').last().unwrap_or_default()
+    arn.split('/').next_back().unwrap_or_default()
 }

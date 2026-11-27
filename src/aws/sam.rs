@@ -41,15 +41,13 @@ pub async fn sam_build(
 
     // Call sam build with raised ulimit to avoid ProcessFdQuotaExceeded
     // exception (common on M-type macs).
-    let shell_command = format!("ulimit -n 8192; exec sam build");
     ex.execute_with_options(
         "sh",
-        &["-c", &shell_command],
+        &["-c", "ulimit -n 8192; exec sam build"],
         IOMode::Attach,
         ExecuteOptions {
             dir: Some(project_dir),
             env: Some(env),
-            ..Default::default()
         },
     )
     .await?;
@@ -82,7 +80,7 @@ pub async fn sam_deploy(
     ]
     .into_iter()
     .map(String::from)
-    .chain(param_strs.into_iter())
+    .chain(param_strs)
     .collect::<Vec<_>>();
 
     pr.info("Deploying with SAM...");

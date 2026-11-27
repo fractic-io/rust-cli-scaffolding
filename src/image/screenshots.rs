@@ -33,6 +33,10 @@ where
     })
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "an options struct would change this public signature for every caller"
+)]
 pub fn process_screenshot_headline_text<P>(
     printer: &Printer,
     input: P,
@@ -93,7 +97,7 @@ where
         let overlay_y =
             height as isize - inner_height as isize + border_thickness as isize + push_down;
         result
-            .compose_images(&wand, CompositeOperator::Over, true, overlay_x, overlay_y)
+            .compose_images(wand, CompositeOperator::Over, true, overlay_x, overlay_y)
             .into_cli_res()?;
 
         // Add headline text.
@@ -258,7 +262,7 @@ fn add_text(
     drawing_wand.set_font(font).into_cli_res()?;
     drawing_wand.set_text_antialias(MagickBooleanType::MagickTrue);
     drawing_wand.set_font_size(font_size);
-    drawing_wand.set_fill_color(&color);
+    drawing_wand.set_fill_color(color);
     drawing_wand.set_gravity(match align {
         TextAlign::Left => GravityType::West,
         TextAlign::Center => GravityType::Center,

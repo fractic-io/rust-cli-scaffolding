@@ -7,7 +7,7 @@ use aws_sdk_secretsmanager::{
 };
 use serde::de::DeserializeOwned;
 
-use super::shared_config::config_from_profile;
+use super::shared_config::aws_config_from_profile;
 
 define_cli_error!(
     FailedToFetchAwsSecret,
@@ -36,7 +36,7 @@ define_cli_error!(
 // ----------------------------------------------------------------------------
 
 pub async fn secret_exists(profile: &str, region: &str, secret_id: &str) -> Result<bool, CliError> {
-    let client = Client::new(&config_from_profile(profile, region).await);
+    let client = Client::new(&aws_config_from_profile(profile, region).await);
     match client.describe_secret().secret_id(secret_id).send().await {
         Ok(_) => Ok(true),
         Err(SdkError::<DescribeSecretError>::ServiceError(se))
@@ -49,7 +49,7 @@ pub async fn secret_exists(profile: &str, region: &str, secret_id: &str) -> Resu
 }
 
 pub async fn get_secret(profile: &str, region: &str, secret_id: &str) -> Result<String, CliError> {
-    let client = Client::new(&config_from_profile(profile, region).await);
+    let client = Client::new(&aws_config_from_profile(profile, region).await);
     client
         .get_secret_value()
         .secret_id(secret_id)
@@ -98,7 +98,7 @@ pub async fn secret_replica_regions(
     region: &str,
     secret_id: &str,
 ) -> Result<HashSet<String>, CliError> {
-    let client = Client::new(&config_from_profile(profile, region).await);
+    let client = Client::new(&aws_config_from_profile(profile, region).await);
     Ok(client
         .describe_secret()
         .secret_id(secret_id)
@@ -106,7 +106,7 @@ pub async fn secret_replica_regions(
         .await
         .map_err(|e| AwsSecretsManagerError::with_debug(&e))?
         .replication_status()
-        .into_iter()
+        .iter()
         .filter_map(|status| status.region())
         .map(str::to_owned)
         .collect())
@@ -121,7 +121,7 @@ pub async fn update_or_create_secret(
     value: &str,
     replica_regions: Option<&HashSet<String>>,
 ) -> Result<bool, CliError> {
-    let client = Client::new(&config_from_profile(profile, region).await);
+    let client = Client::new(&aws_config_from_profile(profile, region).await);
     match secret_exists(profile, region, secret_id).await? {
         true => {
             pr.info(&format!("Updating secret '{secret_id}'..."));
@@ -145,7 +145,7 @@ pub async fn update_or_create_secret(
                 .name(secret_id)
                 .secret_string(value)
                 .set_add_replica_regions(replica_regions.map(|r| {
-                    r.into_iter()
+                    r.iter()
                         .map(|r| ReplicaRegionType::builder().region(r).build())
                         .collect()
                 }))

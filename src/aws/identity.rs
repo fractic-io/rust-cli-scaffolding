@@ -2,7 +2,7 @@ use crate::{define_cli_error, define_cli_user_error, CliError};
 use aws_sdk_sts::{error::ProvideErrorMetadata, Client};
 use aws_smithy_runtime_api::client::result::SdkError;
 
-use super::shared_config::config_from_profile;
+use super::shared_config::aws_config_from_profile;
 
 const TEST_REGION: &str = "us-west-1";
 
@@ -24,7 +24,7 @@ pub async fn require_aws_profile(
     cli_role: &str,
 ) -> Result<String, CliError> {
     let profile = format!("{}-{}", cli_role, account_id);
-    let client = Client::new(&config_from_profile(&profile, TEST_REGION).await);
+    let client = Client::new(&aws_config_from_profile(&profile, TEST_REGION).await);
     client.get_caller_identity().send().await.map_err(|e| {
         if is_aws_profile_required_error(&e) {
             AwsProfileRequired::with_debug(&profile, cli_role, account_id, sso_session, &e)

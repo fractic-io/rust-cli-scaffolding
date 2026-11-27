@@ -4,7 +4,7 @@ use aws_sdk_route53domains::{
     Client,
 };
 
-use super::shared_config::config_from_profile;
+use super::shared_config::aws_config_from_profile;
 
 define_cli_error!(
     Route53DomainError,
@@ -17,14 +17,14 @@ define_cli_error!(
 );
 
 // Since Route53 is a global service, we can use any region.
-const DEFAULT_REGION: &'static str = "us-east-1";
+const DEFAULT_REGION: &str = "us-east-1";
 
 pub async fn set_route53_domain_nameservers(
     profile: &str,
     domain: &str,
     nameservers: Vec<&str>,
 ) -> Result<(), CliError> {
-    let client = Client::new(&config_from_profile(profile, DEFAULT_REGION).await);
+    let client = Client::new(&aws_config_from_profile(profile, DEFAULT_REGION).await);
 
     client
         .update_domain_nameservers()
@@ -36,7 +36,7 @@ pub async fn set_route53_domain_nameservers(
                     NameserverBuilder::default()
                         .name(ns)
                         .build()
-                        .map_err(|e| Route53DomainInvalidNameserver::with_debug(&ns, &e))
+                        .map_err(|e| Route53DomainInvalidNameserver::with_debug(ns, &e))
                 })
                 .collect::<Result<Vec<Nameserver>, CliError>>()?,
         ))

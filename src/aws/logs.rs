@@ -1,7 +1,7 @@
 use crate::{define_cli_error, CliError};
 use aws_sdk_cloudwatchlogs::Client;
 
-use super::shared_config::config_from_profile;
+use super::shared_config::aws_config_from_profile;
 
 define_cli_error!(
     CloudWatchLogsError,
@@ -27,7 +27,7 @@ pub async fn set_log_retention_by_wildcard(
         .try_into()
         .map_err(|e| InvalidRetentionValue::with_debug(retention_in_days, &e))?;
 
-    let config = config_from_profile(profile, region).await;
+    let config = aws_config_from_profile(profile, region).await;
     let client = Client::new(&config);
 
     let matcher = WildcardMatcher::new(log_group_wildcard)
@@ -84,8 +84,7 @@ impl WildcardMatcher {
         // - Anchor with ^ and $
         let mut regex_pattern = String::from("^");
 
-        let mut chars = pattern.chars().peekable();
-        while let Some(ch) = chars.next() {
+        for ch in pattern.chars() {
             match ch {
                 '*' => regex_pattern.push_str(".*"),
                 '?' => regex_pattern.push('.'),

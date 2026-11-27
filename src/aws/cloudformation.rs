@@ -11,9 +11,9 @@ use aws_sdk_cloudformation::{
     types::{Capability, ChangeSetStatus, Parameter},
     Client,
 };
-use aws_smithy_runtime_api::client::waiters::error::WaiterError;
+use aws_smithy_runtime_api::client::waiters::{error::WaiterError, FinalPoll};
 
-use super::shared_config::config_from_profile;
+use super::shared_config::aws_config_from_profile;
 
 define_cli_error!(CloudFormationError, "Error running CloudFormation command.");
 define_cli_error!(
@@ -45,7 +45,7 @@ pub enum StackDeploymentMethod {
 }
 
 pub async fn stack_exists(profile: &str, region: &str, stack_name: &str) -> Result<bool, CliError> {
-    let client = Client::new(&config_from_profile(profile, region).await);
+    let client = Client::new(&aws_config_from_profile(profile, region).await);
     let response = client.describe_stacks().stack_name(stack_name).send().await;
     match response {
         Ok(v) => Ok(!v.stacks.unwrap_or_default().is_empty()),
@@ -60,7 +60,7 @@ pub async fn require_stack_outputs(
     stack_name: &str,
     output_keys: HashSet<String>,
 ) -> Result<HashMap<String, String>, CliError> {
-    let client = Client::new(&config_from_profile(profile, region).await);
+    let client = Client::new(&aws_config_from_profile(profile, region).await);
 
     let response = client
         .describe_stacks()
@@ -123,6 +123,10 @@ fn derive_template_url(s3_bucket: &str, s3_region: &str, s3_key: &str) -> String
     format!("https://{s3_bucket}.s3.{s3_region}.amazonaws.com/{s3_key}")
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "an options struct would change this public signature for every caller"
+)]
 pub async fn deploy_stack_from_s3(
     pr: &Printer,
     profile: &str,
@@ -134,7 +138,7 @@ pub async fn deploy_stack_from_s3(
     method: StackDeploymentMethod,
     parameters: HashMap<String, String>,
 ) -> Result<(), CliError> {
-    let client = Client::new(&config_from_profile(profile, stack_region).await);
+    let client = Client::new(&aws_config_from_profile(profile, stack_region).await);
 
     let s3_url = derive_template_url(s3_bucket, s3_region, s3_key);
     let parameters = parameters
@@ -172,7 +176,7 @@ pub async fn deploy_stack_from_s3(
                 .change_set_name(&changeset_name)
                 .wait(DEPLOY_WAIT_TIMEOUT)
                 .await
-                .map(|r| r.into_result());
+                .map(FinalPoll::into_result);
             match result {
                 Ok(Ok(final_poll))
                     if final_poll.status() == Some(&ChangeSetStatus::CreateComplete) =>
@@ -194,7 +198,7 @@ pub async fn deploy_stack_from_s3(
                     if failure_state
                         .final_poll()
                         .as_result()
-                        .map_or(false, |final_poll| {
+                        .is_ok_and(|final_poll| {
                             final_poll.status() == Some(&ChangeSetStatus::Failed)
                                 && final_poll
                                     .status_reason()
@@ -212,7 +216,7 @@ pub async fn deploy_stack_from_s3(
                         .map_err(|e| CloudFormationDeploymentFailed::with_debug(stack_name, &e))?;
                     pr.info("Changeset deleted.");
                 }
-                e @ _ => {
+                e => {
                     return Err(CloudFormationDeploymentFailed::with_debug(stack_name, &e));
                 }
             }

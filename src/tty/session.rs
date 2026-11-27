@@ -124,7 +124,7 @@ impl Tty {
                     let m = e.message();
                     match m.char_indices().nth(120) {
                         Some((i, _)) => &format!("{}...", &m[..i]),
-                        None => &m,
+                        None => m,
                     }
                 };
                 self.printer.notify(NotifyKind::Error, "CLI Failure", head);

@@ -6,7 +6,7 @@ use nix::unistd;
 use openssh::{ForwardType, KnownHosts, Session, SessionBuilder};
 use std::fs;
 use std::os::unix::fs::MetadataExt as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::{kill_open_sockets_on_port, wait_until_socket_open};
@@ -176,6 +176,12 @@ fn stderr_indicates_host_key_changed(stderr: &str) -> bool {
 }
 
 /// The port forwarding remains active until the returned PortForwardHandle is dropped.
+/// The forwarded port listens on loopback only, so only the machine it is opened on
+/// can connect to it.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "an options struct would change this public signature for every caller"
+)]
 pub async fn forward_port<'a>(
     pr: &Printer,
     user: &str,
@@ -220,7 +226,7 @@ pub async fn forward_port<'a>(
         .request_port_forward(
             direction,
             (
-                std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
+                std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
                 local_port,
             ),
             (
@@ -237,7 +243,7 @@ pub async fn forward_port<'a>(
 pub async fn ssh_cache_identity(
     pr: &Printer,
     ex: &Executor,
-    identity_file: &PathBuf,
+    identity_file: &Path,
     ttl: SshCacheTtl,
 ) -> Result<(), CliError> {
     fn duration_until_time_of_day(target: NaiveTime) -> Duration {

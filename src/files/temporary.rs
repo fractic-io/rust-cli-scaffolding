@@ -20,9 +20,9 @@ where
 {
     let temp_file = NamedTempFile::new()
         .map_err(|e| TemporaryFileError::with_debug("failed to create NamedTempFile", &e))?;
-    std::fs::write(&temp_file.path(), content)
+    std::fs::write(temp_file.path(), content)
         .map_err(|e| TemporaryFileError::with_debug("failed to write content", &e))?;
-    let result = op(&temp_file.path());
+    let result = op(temp_file.path());
     // NamedTempFiles are deleted automatically when they go out of scope, but
     // drop it explicitly just to be safe.
     drop(temp_file);
@@ -36,7 +36,7 @@ where
 {
     let temp_file = NamedTempFile::new()
         .map_err(|e| TemporaryFileError::with_debug("failed to create NamedTempFile", &e))?;
-    let result = op(&temp_file.path());
+    let result = op(temp_file.path());
     // NamedTempFiles are deleted automatically when they go out of scope, but
     // drop it explicitly just to be safe.
     drop(temp_file);
@@ -66,9 +66,9 @@ where
     }
     let temp_file = NamedTempFile::new()
         .map_err(|e| TemporaryFileError::with_debug("failed to create NamedTempFile", &e))?;
-    std::fs::write(&temp_file.path(), content)
+    std::fs::write(temp_file.path(), content)
         .map_err(|e| TemporaryFileError::with_debug("failed to write content", &e))?;
-    ln_s(&temp_file.path(), path)
+    ln_s(temp_file.path(), path)
         .map_err(|e| TemporaryFileError::with_debug("failed to create symlink", &e))?;
     let result = op();
     rm(path).map_err(|e| TemporaryFileError::with_debug("failed to remove symlink", &e))?;

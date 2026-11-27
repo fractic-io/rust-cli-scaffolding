@@ -1,9 +1,9 @@
 mod executor;
 mod printer;
-mod tty;
+mod session;
 mod user_preferences;
 
 pub use executor::*;
 pub use printer::*;
-pub use tty::*;
+pub use session::*;
 pub use user_preferences::*;
