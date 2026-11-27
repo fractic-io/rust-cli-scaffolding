@@ -1,0 +1,318 @@
+use std::{
+    future::Future,
+    io::{StdoutLock, Write as _},
+    pin::Pin,
+    sync::atomic::{AtomicBool, Ordering},
+};
+
+use clap::ValueEnum;
+use colored::{ColoredString, Colorize as _};
+use notify_rust::Notification;
+#[cfg(all(unix, not(target_os = "macos")))]
+use notify_rust::Urgency;
+use serde::{Deserialize, Serialize};
+
+use crate::{continue_after_enter, yes_no, CliError, CliErrorKind};
+
+/// Status to stdout, warnings and errors to stderr, notifications to the
+/// desktop or to a relay command (`NOTIFY_RELAY_ENV`). While status output is
+/// off (`quiet`), no status and no notifications.
+#[derive(Debug, Clone, Default)]
+pub struct Printer;
+
+/// What a notification means to the reader. Its serde and `ValueEnum` name is
+/// the relay's `--kind` value.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
+#[serde(rename_all = "snake_case")]
+pub enum NotifyKind {
+    /// An expected state that needs nothing (e.g. connected, mounted, done).
+    Status,
+    /// Something to go and look at (e.g. input required).
+    #[default]
+    Attention,
+    /// A failure.
+    Error,
+}
+
+/// Writes nothing while status output is off (`quiet`).
+#[derive(Debug)]
+pub struct StatusBarPrinter {
+    out: Option<StdoutLock<'static>>,
+}
+
+impl Printer {
+    pub fn new() -> Self {
+        Printer
+    }
+
+    /// Turns status output off for the rest of the process (`quiet`): for a
+    /// command whose stdout another program reads. Call it before the first
+    /// status line.
+    pub fn set_quiet() {
+        QUIET.store(true, Ordering::Relaxed);
+    }
+
+    pub(crate) fn section_open(&self, title: &str) {
+        status(title.bold());
+    }
+
+    pub(crate) fn section_end<T>(&self, result: &Result<T, CliError>) {
+        let outcome = match result {
+            Ok(_) => "↳ Complete".dimmed(),
+            Err(error) if error.kind() == CliErrorKind::Cancelled => "↳ Cancelled".dimmed(),
+            Err(_) => "↳ Error".bold().red(),
+        };
+        status(format!("{outcome}\n"));
+    }
+
+    pub fn subcommand_separator(&self, subcommand: &str) {
+        status(format!(
+            "{}\n{}\n",
+            format!("Starting subcommand '{subcommand}'...").green(),
+            "─".repeat(80).green()
+        ));
+    }
+
+    pub fn caution_box(&self, message: &str) {
+        status("-".repeat(80).dimmed());
+        self.warn(&textwrap::wrap(message, 80).join("\n"));
+        status("-".repeat(80).dimmed());
+    }
+
+    pub fn with_status_bar<'a, T, F, Fut>(
+        &'a mut self,
+        f: F,
+    ) -> Pin<Box<dyn Future<Output = T> + 'a>>
+    where
+        F: FnOnce(StatusBarPrinter) -> Fut + 'a,
+        Fut: Future<Output = T> + 'a,
+    {
+        Box::pin(async move { f(StatusBarPrinter::new()).await })
+    }
+
+    pub fn info(&self, message: &str) {
+        status(message.dimmed());
+    }
+
+    pub fn important(&self, message: &str) {
+        status(message.bright_blue());
+    }
+
+    /// On stdout, or on stderr while status output is off (`quiet`).
+    pub fn warn(&self, message: &str) {
+        if quiet() {
+            eprintln!("{}", message.yellow());
+        } else {
+            println!("{}", message.yellow());
+        }
+    }
+
+    pub fn error(&self, message: &str) {
+        eprintln!("{}", message.red());
+    }
+
+    pub fn success(&self, message: &str) {
+        status(message.green());
+    }
+
+    pub fn yes_no(&self, prompt: &str) -> Result<bool, CliError> {
+        self.notify(NotifyKind::Attention, "Input Required", prompt);
+        yes_no(prompt)
+    }
+
+    pub fn continue_after_enter(&self, message: Option<&str>) -> Result<(), CliError> {
+        self.notify(
+            NotifyKind::Attention,
+            "Input Required",
+            message.unwrap_or("Press Enter to continue..."),
+        );
+        continue_after_enter(message)
+    }
+
+    /// Best effort. Does not fail if notifications are not supported.
+    ///
+    /// Hands the notification to the relay command when one is set
+    /// (`NOTIFY_RELAY_ENV`). Without a relay, or when it fails, shows the
+    /// notification directly, unless the process runs inside SSH. Does nothing
+    /// while status output is off (`quiet`).
+    pub fn notify(&self, kind: NotifyKind, title: &str, message: &str) {
+        if quiet() {
+            return;
+        }
+        match notify_relay() {
+            Some((program, args)) => relay_notification(&program, &args, kind, title, message),
+            None => show_notification(kind, title, message),
+        }
+    }
+}
+
+impl NotifyKind {
+    /// The desktop notification urgency of this kind.
+    #[cfg(all(unix, not(target_os = "macos")))]
+    pub fn urgency(self) -> Urgency {
+        match self {
+            NotifyKind::Status => Urgency::Low,
+            NotifyKind::Attention => Urgency::Normal,
+            NotifyKind::Error => Urgency::Critical,
+        }
+    }
+}
+
+impl StatusBarPrinter {
+    fn new() -> Self {
+        StatusBarPrinter {
+            out: (!quiet()).then(|| std::io::stdout().lock()),
+        }
+    }
+
+    fn write(&mut self, status: ColoredString) {
+        let Some(out) = &mut self.out else { return };
+        write!(out, "\r\x1b[2K").unwrap();
+        write!(out, "\r{}", status).unwrap();
+        out.flush().unwrap();
+    }
+
+    pub fn info(&mut self, status: &str) {
+        self.write(status.dimmed());
+    }
+
+    pub fn important(&mut self, status: &str) {
+        self.write(status.bright_blue());
+    }
+
+    pub fn warn(&mut self, status: &str) {
+        self.write(status.yellow());
+    }
+
+    pub fn error(&mut self, status: &str) {
+        self.write(status.red());
+    }
+
+    fn close(&mut self) {
+        let Some(out) = &mut self.out else { return };
+        writeln!(out).unwrap();
+        out.flush().unwrap();
+    }
+}
+
+impl Drop for StatusBarPrinter {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+
+// Internal: Status output.
+// ----------------------------------------------------------------------------
+
+static QUIET: AtomicBool = AtomicBool::new(false);
+
+/// Whether status output is off. Then the printer writes no status (sections,
+/// info, success, the closing lines of `Tty::close`, status bars) and raises
+/// no notifications: stdout carries only what the command itself prints, for
+/// a caller that parses it, and a scripted failure is not a desktop alert.
+/// Warnings and errors go to stderr.
+fn quiet() -> bool {
+    QUIET.load(Ordering::Relaxed)
+}
+
+fn status(line: impl std::fmt::Display) {
+    if !quiet() {
+        println!("{line}");
+    }
+}
+
+// Internal: Notifications.
+// ----------------------------------------------------------------------------
+
+/// A command that takes over showing notifications, for example to forward
+/// them to another machine: a program and leading arguments, split on
+/// whitespace. The arguments `--app-name <executable name> --kind <NotifyKind>
+/// -- <title> <message>` are appended to it. The relay runs without this
+/// variable, so a relay built on this crate shows its own notifications
+/// directly. A relay that exits non-zero has not delivered the notification,
+/// which is then shown directly.
+const NOTIFY_RELAY_ENV: &str = "FRACTIC_CLI_NOTIFY_RELAY";
+
+/// The relay's program and leading arguments, if one is set.
+fn notify_relay() -> Option<(String, Vec<String>)> {
+    let relay = std::env::var(NOTIFY_RELAY_ENV).ok()?;
+    let mut words = relay.split_whitespace().map(str::to_owned);
+    Some((words.next()?, words.collect()))
+}
+
+#[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(unused_variables))]
+fn show_notification(kind: NotifyKind, title: &str, message: &str) {
+    if ["SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY"]
+        .iter()
+        .any(|key| std::env::var_os(key).is_some())
+    {
+        return;
+    }
+    let mut notification = Notification::new();
+    notification.summary(title).body(message);
+    #[cfg(all(unix, not(target_os = "macos")))]
+    notification.urgency(kind.urgency());
+    let _ = notification.show();
+}
+
+/// Runs the relay in the background so a slow relay never delays the
+/// prompt that follows, and falls back to showing the notification
+/// directly when it fails. Sync on purpose: `notify` is called outside the
+/// runtime too, so this cannot go through `Executor`.
+fn relay_notification(
+    program: &str,
+    leading_args: &[String],
+    kind: NotifyKind,
+    title: &str,
+    message: &str,
+) {
+    // The name notify-rust would show for this process.
+    let app_name = std::env::current_exe()
+        .ok()
+        .and_then(|exe| Some(exe.file_stem()?.to_string_lossy().into_owned()))
+        .unwrap_or_default();
+    let kind_arg = kind
+        .to_possible_value()
+        .map(|value| value.get_name().to_owned())
+        .unwrap_or_default();
+    let child = std::process::Command::new(program)
+        .args(leading_args)
+        .args(["--app-name", &app_name, "--kind", &kind_arg])
+        .args(["--", title, message])
+        .env_remove(NOTIFY_RELAY_ENV)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+    let (title, message) = (title.to_owned(), message.to_owned());
+    std::thread::spawn(move || {
+        let relayed = child
+            .and_then(|mut c| c.wait())
+            .is_ok_and(|status| status.success());
+        if !relayed {
+            show_notification(kind, &title, &message);
+        }
+    });
+}
+
+// Tests.
+// ----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn notify_kind_has_one_name_in_serde_and_clap() {
+        let mut names = Vec::new();
+        for kind in NotifyKind::value_variants() {
+            let name = kind.to_possible_value().unwrap().get_name().to_owned();
+            assert_eq!(serde_json::to_string(kind).unwrap(), format!("\"{name}\""));
+            assert_eq!(NotifyKind::from_str(&name, false), Ok(*kind));
+            names.push(name);
+        }
+        // The relay's wire format: renaming one breaks older relays.
+        assert_eq!(names, ["status", "attention", "error"]);
+        assert_eq!(NotifyKind::default(), NotifyKind::Attention);
+    }
+}
